@@ -34,7 +34,6 @@ pub trait Solvable {
     fn solve(&mut self) -> u64;
 }
 /// Implementation of the solutions without cache
-/// For convenience, F(0) is assumed to return 0, altho this might not be true.
 impl FibonacciRecursiveSlow {
   /// Requests recursively cost is O(2^n)
   fn rec_solve(&self, target: u8) -> u64{
@@ -55,7 +54,7 @@ impl Solvable for FibonacciPhi {
   /// Uses the golden ratio to calculate the result.
   /// Cost: O(1)
   fn solve(&mut self) -> u64 {
-    let golden_ratio:f64 = 1.618033988749895; // from find_phi
+    let golden_ratio:f64 = 1.618033988749895; // from find_phi() function
     let target = i32::from(self.target);
     match target {
         0 => 0,
@@ -84,8 +83,7 @@ impl Solvable for FibonacciPoles {
     }
   }
 }
-/// Implementation of the solutions without cache
-/// For convenience, F(0) is assumed to return 0, altho this might not be true.
+/// Implementation of the solutions with cache
 impl Solvable for FibonacciRecursiveCache {
   /// Requests recursively the solutions and caches
   /// results, the cost is O(n)
@@ -116,6 +114,7 @@ impl FibonacciRecursiveSlow {
   }
 }
 impl FibonacciRecursiveCache {
+  /// Uses the vector cache to avoid computing the same ith.
   fn rec_solve(&mut self, target: usize) -> u64{
     if let Some(_) = self.cache.get(target as usize){
         return self.cache[target]
@@ -154,6 +153,7 @@ impl Solvable for FibonacciSequential {
     self.cache[1]
   }
 }
+/// Generic struct that uses all targets all possible solutions.
 pub struct Fibonacci {
     target: u8,
     target_solution: String,
