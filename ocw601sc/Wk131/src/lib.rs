@@ -13,65 +13,50 @@ pub fn read_u8() -> u8 {
         .expect("Failed to read u8")
 }
 /// Different solutions for the Fibonacci sequence
-pub enum FibonacciSolutions {
-    Sequential(u8),
-    RecursiveSlow(u8),
-    RecursiveCache(u8),
-    Poles(u8),
-    Phi(u8),
+pub struct FibonacciRecursiveSlow {
+    pub target: u8,
 }
-/// A struct with a target Fibonacci Solution enum.
-pub struct Fibonacci {
-    pub target: FibonacciSolutions,
+pub struct FibonacciPoles {
+    pub target: u8,
+}
+pub struct FibonacciPhi {
+    pub target: u8,
+}
+pub struct FibonacciRecursiveCache {
+    pub target: u8,
     cache: Vec<u64>,
 }
-/// Implementation of the solutions.
+pub struct FibonacciSequential {
+    pub target: u8,
+    cache: Vec<u64>,
+}
+pub trait Solvable {
+    fn solve(&mut self) -> u64;
+}
+/// Implementation of the solutions without cache
 /// For convenience, F(0) is assumed to return 0, altho this might not be true.
-impl Fibonacci {
-  /// Requests recursively the solutions but does not cache
-  /// results, meaning the cost is O(2^n)
-  fn recurse_slow(target: u8) -> u64{
+impl FibonacciRecursiveSlow {
+  /// Requests recursively cost is O(2^n)
+  fn rec_solve(&self, target: u8) -> u64{
     match target {
         0 => 0,
         1 => 0,
         2 => 1,
-        _ => (Fibonacci::recurse_slow(target - 1) + Fibonacci::recurse_slow(target - 2))
+        _ => (self.rec_solve(target - 1) + self.rec_solve(target - 2))
     }
   }
-  /// Requests recursively the solutions and caches
-  /// results, the cost is O(n)
-  fn recurse_cache_run(&mut self, target: usize) -> u64{
-    if let Some(_) = self.cache.get(target as usize){
-        return self.cache[target]
-    }
-    self.cache[target] = Fibonacci::recurse_cache_run(self, target - 2) + Fibonacci::recurse_cache_run(self, target - 1);
-    self.cache[target]
+}
+impl Solvable for FibonacciRecursiveSlow {
+  fn solve(&mut self) -> u64 {
+      self.rec_solve(self.target)
   }
-  fn recurse_cache(&mut self, target: u8) -> u64{
-      self.cache = vec![0u64,0u64,1u64];
-      Fibonacci::recurse_cache_run(self, target as usize)
-  }
- 
-  /// Uses a two items vector with the current solutions
-  /// Cost: O(n+2)? There's always need to overwrite the values.
-  fn sequential(mut target: u8) -> u64{
-    let mut cache:Vec<u64> = vec![0u64,1u64];
-    if target < 2 {
-        return cache[0]
-    }
-    while target > 2 {
-        let temp = cache[0];
-        cache[0] = cache[1];
-        cache[1] = cache[0] + temp;
-        target = target - 1;
-    }
-    cache[1]
-  }
+}
+impl Solvable for FibonacciPhi {
   /// Uses the golden ratio to calculate the result.
   /// Cost: O(1)
-  fn phi(target: u8) -> u64 {
+  fn solve(&mut self) -> u64 {
     let golden_ratio:f64 = 1.618033988749895; // from find_phi
-    let target = i32::from(target);
+    let target = i32::from(self.target);
     match target {
         0 => 0,
         1 => 0,
@@ -82,10 +67,12 @@ impl Fibonacci {
              ).round() as u64
     }
   }
+}
+impl Solvable for FibonacciPoles {
   /// Uses poles to calculate the result.
   /// Cost:  O(1)
-  fn poles(target: u8) -> u64 {
-    let target = i32::from(target);
+  fn solve(&mut self) -> u64 {
+    let target = i32::from(self.target);
     match target {
         0 => 0,
         1 => 0,
@@ -96,44 +83,101 @@ impl Fibonacci {
               )/f64::from(5).sqrt()).round() as u64
     }
   }
-  /// Depending on the target enum type, calculates on a solution.
-  pub fn solve(&mut self) -> u64{
-      match self.target {
-          FibonacciSolutions::Sequential(val) => Fibonacci::sequential(val),
-          FibonacciSolutions::RecursiveSlow(val) => Fibonacci::recurse_slow(val),
-          FibonacciSolutions::Poles(val) => Fibonacci::poles(val),
-          FibonacciSolutions::Phi(val) => Fibonacci::phi(val),
-          FibonacciSolutions::RecursiveCache(val) => Fibonacci::recurse_cache(self,val)
+}
+/// Implementation of the solutions without cache
+/// For convenience, F(0) is assumed to return 0, altho this might not be true.
+impl Solvable for FibonacciRecursiveCache {
+  /// Requests recursively the solutions and caches
+  /// results, the cost is O(n)
+  fn solve(&mut self) -> u64 {
+      let target = usize::from(self.target);
+      self.rec_solve(target)
+  }
+}
+impl FibonacciPhi {
+  fn new(target: u8) -> Self {
+    FibonacciPhi {
+        target: target,
+    }
+  }
+}
+impl FibonacciPoles {
+  fn new(target: u8) -> Self {
+    FibonacciPoles {
+        target: target,
+    }
+  }
+}
+impl FibonacciRecursiveSlow {
+  fn new(target: u8) -> Self {
+    FibonacciRecursiveSlow {
+        target: target,
+    }
+  }
+}
+impl FibonacciRecursiveCache {
+  fn rec_solve(&mut self, target: usize) -> u64{
+    if let Some(_) = self.cache.get(target as usize){
+        return self.cache[target]
+    }
+    self.cache[target] = self.rec_solve(target - 2) + self.rec_solve(target - 1);
+    self.cache[target]
+  }
+  fn new(target: u8) -> Self {
+    FibonacciRecursiveCache {
+        cache: vec![0u64,0u64,1u64],
+        target: target,
+    }
+  }
+}
+impl FibonacciSequential {
+  fn new(target: u8) -> Self {
+    FibonacciSequential {
+        cache: vec![0u64,1u64],
+        target: target,
+    }
+  }
+}
+impl Solvable for FibonacciSequential {
+  /// Uses a two items vector with the current solutions
+  /// Cost: O(n+2)? There's always need to overwrite the values.
+  fn solve(&mut self) -> u64{
+    if self.target < 2 {
+        return self.cache[0]
+    }
+    while self.target > 2 {
+        let temp = self.cache[0];
+        self.cache[0] = self.cache[1];
+        self.cache[1] = self.cache[0] + temp;
+        self.target = self.target - 1;
+    }
+    self.cache[1]
+  }
+}
+pub struct Fibonacci {
+    target: u8,
+    target_solution: String,
+}
+impl Fibonacci {
+  /// Returns a new instance of Fibonacci.
+  pub fn new(solution: &String, target: u8) -> Self {
+      Fibonacci {
+          target: target,
+          target_solution: solution.clone()
       }
   }
-  /// Returns a new instance of Fibonacci.
-  pub fn new(target_solution: &String, target: u8) -> Fibonacci{
-      match target_solution.as_ref() {
+  pub fn solve(self) -> u64 {
+      match self.target_solution.as_ref() {
           "poles" =>
-              Fibonacci {
-                  target: FibonacciSolutions::Poles(target),
-                  cache: Vec::new()
-              },
+              FibonacciPoles::new(self.target).solve(),
           "recursive_slow"|"rec_slow" =>
-              Fibonacci {
-                  target: FibonacciSolutions::RecursiveSlow(target),
-                  cache: Vec::new()
-              },
+              FibonacciRecursiveSlow::new(self.target).solve(),
           "phi" =>
-              Fibonacci {
-                  target: FibonacciSolutions::Phi(target),
-                  cache: Vec::new()
-              },
+              FibonacciPhi::new(self.target).solve(),
           "recursive_cache"|"rec_cache" =>
-              Fibonacci {
-                  target: FibonacciSolutions::RecursiveCache(target),
-                  cache: Vec::new()
-              },
+              FibonacciRecursiveCache::new(self.target).solve(),
           _ =>
-              Fibonacci {
-                  target: FibonacciSolutions::Sequential(target),
-                  cache: Vec::new()
-              }
+              FibonacciSequential::new(self.target).solve(),
       }
   }
 /*  fn Display(self) {
