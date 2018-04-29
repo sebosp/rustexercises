@@ -2,7 +2,6 @@
 //! `fibo` is a collection of solutions for the Fibonacci sequence
 extern crate test;
 use std::io;
-// Note: 9223372036854775807 max u64
 pub fn read_u8() -> u8 {
     let mut input = String::new();
     io::stdin().read_line(&mut input)
@@ -34,17 +33,6 @@ pub trait Solvable {
     fn solve(&mut self) -> u64;
 }
 /// Implementation of the solutions without cache
-impl FibonacciRecursiveSlow {
-  /// Requests recursively cost is O(2^n)
-  fn rec_solve(&self, target: u8) -> u64{
-    match target {
-        0 => 0,
-        1 => 0,
-        2 => 1,
-        _ => (self.rec_solve(target - 1) + self.rec_solve(target - 2))
-    }
-  }
-}
 impl Solvable for FibonacciRecursiveSlow {
   fn solve(&mut self) -> u64 {
       self.rec_solve(self.target)
@@ -92,6 +80,8 @@ impl Solvable for FibonacciRecursiveCache {
       self.rec_solve(target)
   }
 }
+/// Initialization methods and internal routines for when the trait solve
+/// only parameter is not enough.
 impl FibonacciPhi {
   fn new(target: u8) -> Self {
     FibonacciPhi {
@@ -107,6 +97,15 @@ impl FibonacciPoles {
   }
 }
 impl FibonacciRecursiveSlow {
+  /// Requests recursively cost is O(2^n)
+  fn rec_solve(&self, target: u8) -> u64{
+    match target {
+        0 => 0,
+        1 => 0,
+        2 => 1,
+        _ => (self.rec_solve(target - 1) + self.rec_solve(target - 2))
+    }
+  }
   fn new(target: u8) -> Self {
     FibonacciRecursiveSlow {
         target: target,
@@ -116,11 +115,17 @@ impl FibonacciRecursiveSlow {
 impl FibonacciRecursiveCache {
   /// Uses the vector cache to avoid computing the same ith.
   fn rec_solve(&mut self, target: usize) -> u64{
-    if let Some(_) = self.cache.get(target as usize){
+    if let Some(_) = self.cache.get(target){
+        println!("FibonacciRecursiveCache Cache hit for {}",target);
         return self.cache[target]
+    }else{
+        println!("FibonacciRecursiveCache Miss hit for {}",target);
     }
-    self.cache[target] = self.rec_solve(target - 2) + self.rec_solve(target - 1);
+    let seq_minus_2: u64 = self.rec_solve(target - 2);
+    let seq_minus_1: u64 = self.rec_solve(target - 1);
+    self.cache.insert(target,seq_minus_2 + seq_minus_1);
     self.cache[target]
+    //self.cache[target] = self.rec_solve(target - 2) + self.rec_solve(target - 1);
   }
   fn new(target: u8) -> Self {
     FibonacciRecursiveCache {
@@ -139,7 +144,7 @@ impl FibonacciSequential {
 }
 impl Solvable for FibonacciSequential {
   /// Uses a two items vector with the current solutions
-  /// Cost: O(n+2)? There's always need to overwrite the values.
+  /// Cost: O(n)
   fn solve(&mut self) -> u64{
     if self.target < 2 {
         return self.cache[0]
@@ -153,28 +158,28 @@ impl Solvable for FibonacciSequential {
     self.cache[1]
   }
 }
-/// Generic struct that uses all targets all possible solutions.
+/// Generic struct that uses the possible solutions.
 pub struct Fibonacci {
     target: u8,
-    target_solution: String,
+    solution_type: String,
 }
 impl Fibonacci {
   /// Returns a new instance of Fibonacci.
   pub fn new(solution: &String, target: u8) -> Self {
       Fibonacci {
           target: target,
-          target_solution: solution.clone()
+          solution_type: solution.clone()
       }
   }
   pub fn solve(self) -> u64 {
-      match self.target_solution.as_ref() {
+      match self.solution_type.as_ref() {
           "poles" =>
               FibonacciPoles::new(self.target).solve(),
-          "recursive_slow"|"rec_slow" =>
+          "recurse_slow"|"rec_slow" =>
               FibonacciRecursiveSlow::new(self.target).solve(),
           "phi" =>
               FibonacciPhi::new(self.target).solve(),
-          "recursive_cache"|"rec_cache" =>
+          "recurse_cache"|"rec_cache" =>
               FibonacciRecursiveCache::new(self.target).solve(),
           _ =>
               FibonacciSequential::new(self.target).solve(),
@@ -195,7 +200,7 @@ impl Fibonacci {
 }
 /// Helper used once to calculate the golden ratio.
 /// The highest the target, the more precise it will be, but we're not checking
-/// for overflows on u64 either...
+/// for overflows on u64 either. 9223372036854775807 is max u64
 pub fn find_phi(mut target: u8) -> f64{
     let mut cache = vec![0u64,1u64];
     while target > 1 {
@@ -228,28 +233,34 @@ mod tests {
             }
         }
     }
-/*    #[bench]
-    fn bench_fibo_sequential(b: &mut test::Bencher) {
+    #[bench]
+    fn bench_fibo_seq(b: &mut test::Bencher) {
         b.iter(|| {
-            fibo_sequential(55)
+            Fibonacci::new(&"seq".to_string(),35).solve()
+        })
+    }
+    #[bench]
+    fn bench_fibo_recurse_slow(b: &mut test::Bencher) {
+        b.iter(|| {
+            Fibonacci::new(&"recurse_slow".to_string(),35).solve()
         })
     }
     #[bench]
     fn bench_fibo_phi(b: &mut test::Bencher) {
         b.iter(|| {
-            fibo_phi(55)
+            Fibonacci::new(&"phi".to_string(),35).solve()
         })
     }
     #[bench]
     fn bench_fibo_poles(b: &mut test::Bencher) {
         b.iter(|| {
-            fibo_poles(55)
+            Fibonacci::new(&"poles".to_string(),35).solve()
         })
     }
     #[bench]
-    fn bench_fibo_recursive(b: &mut test::Bencher) {
+    fn bench_fibo_recurse_cache(b: &mut test::Bencher) {
         b.iter(|| {
-            fibo_recursive(55)
+            Fibonacci::new(&"recurse_cache".to_string(),35).solve()
         })
-    }*/
+    }
 }
