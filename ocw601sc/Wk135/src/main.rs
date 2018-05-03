@@ -1,3 +1,6 @@
+extern crate polynomial;
+use polynomial::*;
 fn main() {
-    println!("Hello, world!");
+    let testfrom = Polynomial::from_string("1 2 3".to_string());
+    println!("{}",testfrom.to_string());
 }

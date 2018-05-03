@@ -10,16 +10,15 @@ impl Polynomial {
     }
   }
   pub fn from_string(input: String) -> Self {
-    let items:Vec<f64> = input
-      .split_whitespace()
-      .collect::<Vec<&str>>()
-      .iter()
-      .map(|x|
-        x.parse::<f64>().unwrap()
-      )
-      .collect();
     Polynomial {
-      items: items
+      items: input
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .iter()
+        .map(|x|
+          x.parse::<f64>().unwrap()
+        )
+        .collect()
     }
   }
   pub fn add(&self, addend: &Polynomial) -> Self {
@@ -27,12 +26,13 @@ impl Polynomial {
     for item in self.items.iter() {
         res.push(*item);
     }
-    for (i, item) in addend.items.iter().enumerate() {
+    let vec_len = addend.items.len();
+    for (i, item) in addend.items.iter().rev().enumerate() {
         let mut sum = *item;
-        if let Some(x) = res.get(i) {
-          sum = sum + *x;
+        if let Some(x) = res.get(vec_len - i) {
+          sum += *x;
         }
-        res.push(sum);
+        res[vec_len - i]=sum;
     }
     Polynomial {
       items: res
@@ -40,13 +40,21 @@ impl Polynomial {
   }
   pub fn to_string(&self) -> String {
     let mut output = String::new();
-    let vec_len = self.items.len();
+    let vec_len = self.items.len() - 1;
     for (i, item) in self.items.iter().enumerate() {
+      if *item == 0f64 {
+        continue;
+      }
       let exponential = vec_len - i;
-      output.push_str(&item.to_string());
-      if exponential > 0 {
+      if output.len() > 0 {
+        output.push_str(&" + ".to_string());
+      }
+      output.push_str(&format!("{:.*}",3,item));
+      if exponential > 1 {
         output.push_str(&" z**".to_string());
         output.push_str(&exponential.to_string());
+      }else if exponential == 1 {
+        output.push_str(&" z".to_string());
       }
     }
     output
@@ -77,6 +85,21 @@ mod tests {
   fn test_from_string() {
     let testfrom = Polynomial::from_string("1 2 3".to_string());
     assert_eq!(vec![1f64,2f64,3f64],testfrom.items);
+  }
+  #[test]
+  fn test_to_string() {
+    assert_eq!(Polynomial::from_string("8".to_string()).to_string(),"8.000".to_string());
+    assert_eq!(Polynomial::from_string("3 0 0 0".to_string()).to_string(),"3.000 z**3".to_string());
+    assert_eq!(Polynomial::from_string("5 6 7".to_string()).to_string(),"5.000 z**2 + 6.000 z + 7.000".to_string());
+  }
+  #[test]
+  fn test_add() {
+    let p1 = Polynomial::from_string("1 2 3".to_string());
+    // 1.000 z**2 + 2.000 z + 3.000
+    let p2 = Polynomial::from_string("100 200".to_string());
+    // 100.000 z + 200.000
+    let p3 = p1.add(&p2);
+    assert_eq!(p3.to_string(),"1.000 z**2 + 102.000 z + 203.000".to_string());
   }
 /*>>> p1 = Polynomial([1, 2, 3])
 >>> p1
