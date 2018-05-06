@@ -3,17 +3,17 @@ use std::fmt;
 use std::ops::Add;
 #[derive(Debug, PartialEq)]
 pub struct Polynomial {
-  items: Vec<f64>,
+  coeffs: Vec<f64>,
 }
 impl Polynomial {
-  pub fn new(items: Vec<f64>) -> Self {
+  pub fn new(coeffs: Vec<f64>) -> Self {
     Polynomial {
-      items: items
+      coeffs: coeffs
     }
   }
   pub fn from_string(input: String) -> Self {
     Polynomial {
-      items: input
+      coeffs: input
         .split_whitespace()
         .collect::<Vec<&str>>()
         .iter()
@@ -23,32 +23,35 @@ impl Polynomial {
         .collect()
     }
   }
+  pub fn coeff(&self, input: usize) -> f64 {
+      self.coeffs[self.coeffs.len() - input - 1]
+  }
   pub fn add_polynomial(&self, addend: &Polynomial) -> Self {
     let mut res: Vec<f64> = Vec::new();
-    // Initialize result to the items in first array
-    for item in self.items.iter() {
+    // Initialize result to the coeffs in first array
+    for item in self.coeffs.iter() {
         res.push(*item);
     }
-    // Initialize the rest of the items
-    for _ in res.len() - 1 .. addend.items.len() {
+    // Initialize the rest of the coeffs
+    for _ in res.len() .. addend.coeffs.len() {
       res.insert(0,0f64);
     }
-    let vec_len = addend.items.len();
-    for (i, item) in addend.items.iter().rev().enumerate() {
+    let vec_len = res.len();
+    for (i, item) in addend.coeffs.iter().rev().enumerate() {
         let mut sum = *item;
-        if let Some(x) = res.get(vec_len - i) {
+        if let Some(x) = res.get(vec_len - i - 1) {
           sum += *x;
         }
-        res[vec_len - i]=sum;
+        res[vec_len - i - 1]=sum;
     }
     Polynomial {
-      items: res
+      coeffs: res
     }
   }
   pub fn to_string(&self) -> String {
     let mut output = String::new();
-    let vec_len = self.items.len() - 1;
-    for (i, item) in self.items.iter().enumerate() {
+    let vec_len = self.coeffs.len() - 1;
+    for (i, item) in self.coeffs.iter().enumerate() {
       if *item == 0f64 {
         continue;
       }
@@ -74,8 +77,19 @@ impl Polynomial {
     }
     output
   }
-  pub fn solve(&self, _: i64) -> f64 {
-      0f64
+  pub fn solve(&self, val: f64) -> f64 {
+    let mut res = 0f64;
+    for (i, item) in self.coeffs.iter().rev().enumerate() {
+      let exponential:i32 = i32::from(i as u8);
+      if exponential > 1 {
+          res += *item * val.powi(exponential);
+      }else if exponential == 1 {
+          res += *item * val;
+      }else{
+          res += *item;
+      }
+    }
+    res
   }
 }
 impl fmt::Display for Polynomial {
@@ -103,7 +117,7 @@ mod tests {
   #[test]
   fn test_from_string() {
     let testfrom = Polynomial::from_string("1 2 3".to_string());
-    assert_eq!(vec![1f64,2f64,3f64],testfrom.items);
+    assert_eq!(vec![1f64,2f64,3f64],testfrom.coeffs);
   }
   #[test]
   fn test_to_string() {
@@ -122,23 +136,25 @@ mod tests {
     assert_eq!(p3.to_string(),"1.000 z**2 + 102.000 z + 203.000".to_string());
     let p4 = &p2 + &p1;
     assert_eq!(p4.to_string(),"1.000 z**2 + 102.000 z + 203.000".to_string());
+    let p5 = Polynomial::from_string("1 102 203".to_string());
+    assert_eq!(p4,p5);
+  }
+  #[test]
+  fn test_coeff() {
+    let p1 = Polynomial::from_string("1 -7 10 -4 6".to_string());
+    assert_eq!(p1.coeff(3),-7f64);
   }
   #[test]
   fn test_solve() {
     let p1 = Polynomial::from_string("1 2 3".to_string());
     let p2 = Polynomial::from_string("100 200".to_string());
-    assert_eq!(p1.solve(1),6.0);
-    assert_eq!(p1.solve(-1),2.0);
+    assert_eq!(p1.solve(1f64),6.0);
+    assert_eq!(p1.solve(-1f64),2.0);
     let p3 = &p1 + &p2;
-    assert_eq!(p3.solve(10),1323.0);
+    assert_eq!(p3.solve(10f64),1323.0);
+    assert_eq!((&p1 + &p2).solve(10f64),1323.0);
   }
 /*
->>> p1(1)
-6.0
->>> p1(-1)
-2.0
->>> (p1 + p2)(10)
-1323.0
 >>> p1.mul(p1)
 1.000 z**4 + 4.000 z**3 + 10.000 z**2 + 12.000 z + 9.000
 >>> p1 * p1
