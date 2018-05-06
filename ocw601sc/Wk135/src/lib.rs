@@ -1,6 +1,7 @@
 use std::io;
 use std::fmt;
 use std::ops::Add;
+use std::ops::Mul;
 #[derive(Debug, PartialEq)]
 pub struct Polynomial {
   coeffs: Vec<f64>,
@@ -9,18 +10,6 @@ impl Polynomial {
   pub fn new(coeffs: Vec<f64>) -> Self {
     Polynomial {
       coeffs: coeffs
-    }
-  }
-  pub fn from_string(input: String) -> Self {
-    Polynomial {
-      coeffs: input
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .iter()
-        .map(|x|
-          x.parse::<f64>().unwrap()
-        )
-        .collect()
     }
   }
   pub fn coeff(&self, input: usize) -> f64 {
@@ -46,6 +35,47 @@ impl Polynomial {
     }
     Polynomial {
       coeffs: res
+    }
+  }
+  pub fn mul_polynomial(&self, multiplicand: &Polynomial) -> Self {
+    let mut res: Vec<f64> = Vec::new();
+    // Initialize the output array
+    for _ in 0 .. (self.coeffs.len() + multiplicand.coeffs.len() - 1) {
+      res.insert(0,0f64);
+    }
+    for (i, item_i) in self.coeffs.iter().enumerate() {
+      for (j, item_j) in multiplicand.coeffs.iter().enumerate() {
+        res[i+j] += *item_i * *item_j;
+      }
+    }
+    Polynomial {
+      coeffs: res
+    }
+  }
+  pub fn solve(&self, val: f64) -> f64 {
+    let mut res = 0f64;
+    for (i, item) in self.coeffs.iter().rev().enumerate() {
+      let exponential:i32 = i32::from(i as u8);
+      if exponential > 1 {
+          res += *item * val.powi(exponential);
+      }else if exponential == 1 {
+          res += *item * val;
+      }else{
+          res += *item;
+      }
+    }
+    res
+  }
+  pub fn from_string(input: String) -> Self {
+    Polynomial {
+      coeffs: input
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .iter()
+        .map(|x|
+          x.parse::<f64>().unwrap()
+        )
+        .collect()
     }
   }
   pub fn to_string(&self) -> String {
@@ -77,20 +107,6 @@ impl Polynomial {
     }
     output
   }
-  pub fn solve(&self, val: f64) -> f64 {
-    let mut res = 0f64;
-    for (i, item) in self.coeffs.iter().rev().enumerate() {
-      let exponential:i32 = i32::from(i as u8);
-      if exponential > 1 {
-          res += *item * val.powi(exponential);
-      }else if exponential == 1 {
-          res += *item * val;
-      }else{
-          res += *item;
-      }
-    }
-    res
-  }
 }
 impl fmt::Display for Polynomial {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -102,6 +118,12 @@ impl<'r, 'a> Add<&'a Polynomial> for &'r Polynomial {
     type Output = Polynomial;
     fn add(self, other: &Polynomial) -> Polynomial {
         self.add_polynomial(other)
+    }
+}
+impl<'r, 'a> Mul<&'a Polynomial> for &'r Polynomial {
+    type Output = Polynomial;
+    fn mul(self, other: &Polynomial) -> Polynomial {
+        self.mul_polynomial(other)
     }
 }
 /// Helper functions
@@ -153,6 +175,16 @@ mod tests {
     let p3 = &p1 + &p2;
     assert_eq!(p3.solve(10f64),1323.0);
     assert_eq!((&p1 + &p2).solve(10f64),1323.0);
+  }
+  #[test]
+  fn test_multiply() {
+    let p1 = Polynomial::from_string("1 2 3".to_string());
+    assert_eq!((&p1 * &p1).to_string(),"1.000 z**4 + 4.000 z**3 + 10.000 z**2 + 12.000 z + 9.000".to_string());
+    let p2 = Polynomial::from_string("100 200".to_string());
+    assert_eq!((&(&p1 * &p2) + &p1).to_string(),"100.000 z**3 + 401.000 z**2 + 702.000 z + 603.000".to_string());
+    let p3 = Polynomial::from_string("4 -5".to_string());
+    let p4 = Polynomial::from_string("2 3 -6".to_string());
+    assert_eq!(&p3 * &p4,Polynomial::from_string("8 2 -39 30".to_string()));
   }
 /*
 >>> p1.mul(p1)
