@@ -1,3 +1,6 @@
+#![feature(test)]
+//! Polynomial is a collection of utils for solving Polynomials
+extern crate test;
 use std::io;
 use std::fmt;
 use std::ops::Add;
@@ -51,6 +54,14 @@ impl Polynomial {
     Polynomial {
       coeffs: res
     }
+  }
+  pub fn horner(&self, val: f64) -> f64 {
+    let mut res = 0f64;
+    for item in self.coeffs.iter(){
+        println!("horner res = {} * {} + {}",res, val, *item);
+        res = res * val + *item;
+    }
+    res
   }
   pub fn solve(&self, val: f64) -> f64 {
     let mut res = 0f64;
@@ -175,6 +186,8 @@ mod tests {
     let p3 = &p1 + &p2;
     assert_eq!(p3.solve(10f64),1323.0);
     assert_eq!((&p1 + &p2).solve(10f64),1323.0);
+    let p4 = Polynomial::from_string("2 -6 2 -1".to_string());
+    assert_eq!(p4.solve(3f64),5.0);
   }
   #[test]
   fn test_multiply() {
@@ -185,6 +198,29 @@ mod tests {
     let p3 = Polynomial::from_string("4 -5".to_string());
     let p4 = Polynomial::from_string("2 3 -6".to_string());
     assert_eq!(&p3 * &p4,Polynomial::from_string("8 2 -39 30".to_string()));
+  }
+  #[test]
+  fn test_horner() {
+    let p1 = Polynomial::from_string("1 2 3".to_string());
+    let p2 = Polynomial::from_string("100 200".to_string());
+    assert_eq!(p1.horner(1f64),6.0);
+    assert_eq!(p1.horner(-1f64),2.0);
+    let p3 = &p1 + &p2;
+    assert_eq!(p3.horner(10f64),1323.0);
+    let p4 = Polynomial::from_string("2 -6 2 -1".to_string());
+    assert_eq!(p4.horner(3f64),5.0);
+  }
+  #[bench]
+  fn bench_horner(b: &mut test::Bencher) {
+      b.iter(|| {
+        Polynomial::from_string("2 -6 2 -1".to_string()).horner(3f64);
+      })
+  }
+  #[bench]
+  fn bench_solve(b: &mut test::Bencher) {
+      b.iter(|| {
+        Polynomial::from_string("2 -6 2 -1".to_string()).solve(3f64);
+      })
   }
 /*
 >>> p1.mul(p1)
