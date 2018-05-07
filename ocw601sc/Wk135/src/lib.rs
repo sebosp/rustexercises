@@ -1,10 +1,12 @@
 #![feature(test)]
 //! Polynomial is a collection of utils for solving Polynomials
 extern crate test;
+extern crate fma;
 use std::io;
 use std::fmt;
 use std::ops::Add;
 use std::ops::Mul;
+use fma::*;
 #[derive(Debug, PartialEq)]
 pub struct Polynomial {
   coeffs: Vec<f64>,
@@ -15,9 +17,11 @@ impl Polynomial {
       coeffs: coeffs
     }
   }
+  /// Returns the coefficient at n position
   pub fn coeff(&self, input: usize) -> f64 {
       self.coeffs[self.coeffs.len() - input - 1]
   }
+  /// Adds two polynomials
   pub fn add_polynomial(&self, addend: &Polynomial) -> Self {
     let mut res: Vec<f64> = Vec::new();
     // Initialize result to the coeffs in first array
@@ -40,6 +44,7 @@ impl Polynomial {
       coeffs: res
     }
   }
+  /// Multiplies two polynomials
   pub fn mul_polynomial(&self, multiplicand: &Polynomial) -> Self {
     let mut res: Vec<f64> = Vec::new();
     // Initialize the output array
@@ -55,14 +60,24 @@ impl Polynomial {
       coeffs: res
     }
   }
+  /// Solves the Polynomial with Horners rule for x = val
   pub fn horner(&self, val: f64) -> f64 {
     let mut res = 0f64;
     for item in self.coeffs.iter(){
-        println!("horner res = {} * {} + {}",res, val, *item);
-        res = res * val + *item;
+      res = res * val + *item;
     }
     res
   }
+  /// Solves the Polynomial with Horners rule for x = val, additionally uses FMA (Fused
+  /// Multiply-Add)
+  pub fn horner_fma(&self, val: f64) -> f64 {
+    let mut res = 0f64;
+    for item in self.coeffs.iter(){
+      res = fma(res,val,*item);
+    }
+    res
+  }
+  /// Sequentially solves the Polynomial
   pub fn solve(&self, val: f64) -> f64 {
     let mut res = 0f64;
     for (i, item) in self.coeffs.iter().rev().enumerate() {
@@ -77,6 +92,7 @@ impl Polynomial {
     }
     res
   }
+  /// From a space separated String creates a Polynomial
   pub fn from_string(input: String) -> Self {
     Polynomial {
       coeffs: input
@@ -89,6 +105,7 @@ impl Polynomial {
         .collect()
     }
   }
+  /// Converts a Polynomial to a String
   pub fn to_string(&self) -> String {
     let mut output = String::new();
     let vec_len = self.coeffs.len() - 1;
@@ -119,18 +136,21 @@ impl Polynomial {
     output
   }
 }
+/// Implements the Display Trait for Polynomial
 impl fmt::Display for Polynomial {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     /// Expected output 1.000 z**2 + 2.000 z + 3.000
     write!(f, "{}", self.to_string())
   }
 }
+/// Implements the Add Trait for Polynomial with separate Lifetimes.
 impl<'r, 'a> Add<&'a Polynomial> for &'r Polynomial {
     type Output = Polynomial;
     fn add(self, other: &Polynomial) -> Polynomial {
         self.add_polynomial(other)
     }
 }
+/// Implements the Multiply Trait for Polynomial with separate Lifetimes.
 impl<'r, 'a> Mul<&'a Polynomial> for &'r Polynomial {
     type Output = Polynomial;
     fn mul(self, other: &Polynomial) -> Polynomial {
@@ -213,13 +233,19 @@ mod tests {
   #[bench]
   fn bench_horner(b: &mut test::Bencher) {
       b.iter(|| {
-        Polynomial::from_string("2 -6 2 -1".to_string()).horner(3f64);
+        Polynomial::from_string("2 -6 2 -1".to_string()).horner(25f64);
+      })
+  }
+  #[bench]
+  fn bench_horner_fma(b: &mut test::Bencher) {
+      b.iter(|| {
+        Polynomial::from_string("2 -6 2 -1".to_string()).horner_fma(25f64);
       })
   }
   #[bench]
   fn bench_solve(b: &mut test::Bencher) {
       b.iter(|| {
-        Polynomial::from_string("2 -6 2 -1".to_string()).solve(3f64);
+        Polynomial::from_string("2 -6 2 -1".to_string()).solve(25f64);
       })
   }
 /*

@@ -1,6 +1,7 @@
 extern crate polynomial;
 use polynomial::*;
 fn main() {
-    let testfrom = Polynomial::from_string("1 2 3".to_string());
-    println!("{}",testfrom.to_string());
+    let poly = Polynomial::from_string(read_line());
+    println!("{}",poly.to_string());
+    //println!("{}",poly.solve(f64::from(read_line())));
 }
