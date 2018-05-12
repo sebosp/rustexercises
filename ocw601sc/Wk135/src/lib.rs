@@ -1,15 +1,17 @@
-#![feature(test)]
 //! Polynomial is a collection of utils for solving Polynomials
-extern crate test;
 extern crate fma;
+extern crate rgsl;
+
 use std::io;
 use std::fmt;
 use std::ops::Add;
 use std::ops::Mul;
 use fma::*;
+use rgsl::polynomials::quadratic_equations::*;
+use rgsl::polynomials::cubic_equations::*;
 #[derive(Debug, PartialEq)]
 pub struct Polynomial {
-  coeffs: Vec<f64>,
+  pub coeffs: Vec<f64>,
 }
 impl Polynomial {
   pub fn new(coeffs: Vec<f64>) -> Self {
@@ -135,6 +137,59 @@ impl Polynomial {
     }
     output
   }
+  pub fn roots(&self) -> Result<Vec<f64> , &'static str>{
+    match self.coeffs.len() {
+      1|2|3 => {
+        let mut vals: (f64,f64,f64) = (0.,0.,0.);
+        if self.coeffs.len() > 2 {
+          vals.2 = self.coeffs[2];
+        }
+        if self.coeffs.len() > 1 {
+          vals.1 = self.coeffs[1];
+        }
+        vals.0 = self.coeffs[0];
+        let mut x0:f64 = 1.;
+        let mut x1:f64 = 1.;
+        let res = poly_solve_quadratic(
+            vals.0,
+            vals.1,
+            vals.2,
+            &mut x0,
+            &mut x1
+            );
+        println!("quadratic res = {} ({},{})",res,x0,x1);
+        Ok(vec![x0,x1])
+      },
+      4 => {
+        if self.coeffs[0] != 1. {
+          Err("Order too high to solve for roots.")
+        } else {
+          let mut vals: (f64,f64,f64) = (0.,0.,0.);
+          if self.coeffs.len() > 2 {
+            vals.2 = self.coeffs[2];
+          }
+          if self.coeffs.len() > 1 {
+            vals.1 = self.coeffs[1];
+          }
+          vals.0 = self.coeffs[0];
+          let mut x0:f64 = 0.;
+          let mut x1:f64 = 0.;
+          let mut x2:f64 = 0.;
+          let res = poly_solve_cubic(
+              vals.0,
+              vals.1,
+              vals.2,
+              &mut x0,
+              &mut x1,
+              &mut x2
+              );
+          println!("cubic res = {} ({},{},{})",res,x0,x1,x2);
+          Ok(vec![x0,x1,x2])
+        }
+      },
+      _ => Err("Order too high to solve for roots.")
+    }
+  }
 }
 /// Implements the Display Trait for Polynomial
 impl fmt::Display for Polynomial {
@@ -163,105 +218,4 @@ pub fn read_line() -> String {
   io::stdin().read_line(&mut input)
     .expect("Failed to read line");
   input
-}
-#[cfg(test)]
-mod tests {
-  use super::*;
-  #[test]
-  fn test_from_string() {
-    let testfrom = Polynomial::from_string("1 2 3".to_string());
-    assert_eq!(vec![1f64,2f64,3f64],testfrom.coeffs);
-  }
-  #[test]
-  fn test_to_string() {
-    assert_eq!(Polynomial::from_string("8".to_string()).to_string(),"8.000".to_string());
-    assert_eq!(Polynomial::from_string("3 0 0 0".to_string()).to_string(),"3.000 z**3".to_string());
-    assert_eq!(Polynomial::from_string("5 6 7".to_string()).to_string(),"5.000 z**2 + 6.000 z + 7.000".to_string());
-    assert_eq!(Polynomial::from_string("-5 -6 7".to_string()).to_string(),"-5.000 z**2 - 6.000 z + 7.000".to_string());
-  }
-  #[test]
-  fn test_add() {
-    let p1 = Polynomial::from_string("1 2 3".to_string());
-    // 1.000 z**2 + 2.000 z + 3.000
-    let p2 = Polynomial::from_string("100 200".to_string());
-    // 100.000 z + 200.000
-    let p3 = &p1 + &p2;
-    assert_eq!(p3.to_string(),"1.000 z**2 + 102.000 z + 203.000".to_string());
-    let p4 = &p2 + &p1;
-    assert_eq!(p4.to_string(),"1.000 z**2 + 102.000 z + 203.000".to_string());
-    let p5 = Polynomial::from_string("1 102 203".to_string());
-    assert_eq!(p4,p5);
-  }
-  #[test]
-  fn test_coeff() {
-    let p1 = Polynomial::from_string("1 -7 10 -4 6".to_string());
-    assert_eq!(p1.coeff(3),-7f64);
-  }
-  #[test]
-  fn test_solve() {
-    let p1 = Polynomial::from_string("1 2 3".to_string());
-    let p2 = Polynomial::from_string("100 200".to_string());
-    assert_eq!(p1.solve(1f64),6.0);
-    assert_eq!(p1.solve(-1f64),2.0);
-    let p3 = &p1 + &p2;
-    assert_eq!(p3.solve(10f64),1323.0);
-    assert_eq!((&p1 + &p2).solve(10f64),1323.0);
-    let p4 = Polynomial::from_string("2 -6 2 -1".to_string());
-    assert_eq!(p4.solve(3f64),5.0);
-  }
-  #[test]
-  fn test_multiply() {
-    let p1 = Polynomial::from_string("1 2 3".to_string());
-    assert_eq!((&p1 * &p1).to_string(),"1.000 z**4 + 4.000 z**3 + 10.000 z**2 + 12.000 z + 9.000".to_string());
-    let p2 = Polynomial::from_string("100 200".to_string());
-    assert_eq!((&(&p1 * &p2) + &p1).to_string(),"100.000 z**3 + 401.000 z**2 + 702.000 z + 603.000".to_string());
-    let p3 = Polynomial::from_string("4 -5".to_string());
-    let p4 = Polynomial::from_string("2 3 -6".to_string());
-    assert_eq!(&p3 * &p4,Polynomial::from_string("8 2 -39 30".to_string()));
-  }
-  #[test]
-  fn test_horner() {
-    let p1 = Polynomial::from_string("1 2 3".to_string());
-    let p2 = Polynomial::from_string("100 200".to_string());
-    assert_eq!(p1.horner(1f64),6.0);
-    assert_eq!(p1.horner(-1f64),2.0);
-    let p3 = &p1 + &p2;
-    assert_eq!(p3.horner(10f64),1323.0);
-    let p4 = Polynomial::from_string("2 -6 2 -1".to_string());
-    assert_eq!(p4.horner(3f64),5.0);
-  }
-  #[bench]
-  fn bench_horner(b: &mut test::Bencher) {
-      b.iter(|| {
-        Polynomial::from_string("2 -6 2 -1".to_string()).horner(25f64);
-      })
-  }
-  #[bench]
-  fn bench_horner_fma(b: &mut test::Bencher) {
-      b.iter(|| {
-        Polynomial::from_string("2 -6 2 -1".to_string()).horner_fma(25f64);
-      })
-  }
-  #[bench]
-  fn bench_solve(b: &mut test::Bencher) {
-      b.iter(|| {
-        Polynomial::from_string("2 -6 2 -1".to_string()).solve(25f64);
-      })
-  }
-/*
->>> p1.mul(p1)
-1.000 z**4 + 4.000 z**3 + 10.000 z**2 + 12.000 z + 9.000
->>> p1 * p1
-1.000 z**4 + 4.000 z**3 + 10.000 z**2 + 12.000 z + 9.000
->>> p1 * p2 + p1
-100.000 z**3 + 401.000 z**2 + 702.000 z + 603.000
->>> p1.roots()
-[(-1+1.4142135623730947j), (-1-1.4142135623730947j)]
->>> p2.roots()
-[-2.0]
->>> p3 = Polynomial([3, 2, -1])
->>> p3.roots()
-[-1.0, 0.33333333333333331]
->>> (p1 * p1).roots()
-Order too high to solve for roots.*/
 }

@@ -5,3 +5,4 @@ authors = ["Seb Ospina <kraige@gmail.com>"]
 
 [dependencies]
 fma = "0.1.0"
+GSL = "0.4"
