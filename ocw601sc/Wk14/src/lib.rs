@@ -56,6 +56,32 @@ pub fn extract_tags(input: &str) -> Result<Vec<String>, String> {
     Ok(res)
   }
 }
+pub struct FruitSalad {
+  fruits: Vec<String>,
+  servings: u32,
+}
+impl FruitSalad {
+  pub fn new(fruits: Vec<String>, servings: u32) -> Self {
+    FruitSalad {
+      fruits: fruits,
+      servings: servings,
+    }
+  }
+  pub fn to_string(&self) -> String {
+    format!("{} servings of fruit salad with {:?}",self.servings, self.fruits)
+  }
+  pub fn add(&mut self, new_fruit: String) {
+    self.fruits.push(new_fruit);
+  }
+  pub fn serve(&mut self) -> String {
+    if self.servings > 0 {
+      self.servings = self.servings - 1;
+      "enjoy".to_string()
+    } else {
+      "sorry".to_string()
+    }
+  }
+}
 /// Helper functions
 pub fn read_line() -> String {
   let mut input = String::new();
