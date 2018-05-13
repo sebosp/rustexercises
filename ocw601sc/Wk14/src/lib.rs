@@ -22,6 +22,40 @@ pub fn is_substring(input: &str, fragment: &str) -> bool {
   }
   false
 }
+pub fn extract_tags(input: &str) -> Result<Vec<String>, String> {
+  let mut res: Vec<String> = vec![];
+  let mut current_tag: String = "".to_string();
+  let input_graphemes = UnicodeSegmentation::graphemes(input, true).collect::<Vec<&str>>();
+  let mut open_tag: bool = false;
+  for grapheme in input_graphemes.iter() {
+    if grapheme == &"]".to_string() {
+      if ! open_tag {
+        return Err("Unmatched open tag".to_string())
+      }
+      if current_tag.len() > 0 {
+        res.push(current_tag);
+        current_tag = "".to_string();
+      }
+      open_tag = false;
+      continue;
+    }
+    if open_tag {
+      current_tag.push_str(grapheme);
+    }
+    if grapheme == &"[".to_string() {
+      if open_tag {
+        return Err("Tags within tags are not supported".to_string())
+      } else {
+        open_tag = true;
+      }
+    }
+  }
+  if open_tag {
+    Err("Unmatched close tag".to_string())
+  } else {
+    Ok(res)
+  }
+}
 /// Helper functions
 pub fn read_line() -> String {
   let mut input = String::new();
