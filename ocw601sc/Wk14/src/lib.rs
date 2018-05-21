@@ -1,6 +1,7 @@
 extern crate unicode_segmentation;
 use unicode_segmentation::UnicodeSegmentation;
 use std::io;
+use std::collections::HashMap;
 pub fn is_palindrome(input: &str) -> bool {
   let graphemes = UnicodeSegmentation::graphemes(input, true).collect::<Vec<&str>>();
   graphemes.iter().take(graphemes.len() + 1 / 2 as usize).zip(graphemes.iter().rev().take(graphemes.len() + 1 / 2 as usize)).all(|(x,y)| x == y)
@@ -79,6 +80,57 @@ impl FruitSalad {
       "enjoy".to_string()
     } else {
       "sorry".to_string()
+    }
+  }
+}
+enum TransactionType {
+  Receive,
+  Ship,
+}
+pub struct TransactionOperation {
+  tx_type: TransactionType,
+  item: String,
+  quantity: u32,
+}
+impl TransactionOperation {
+  pub fn new(transaction_type: String,item: String, quantity: u32) -> Self {
+    let mut tx_type:TransactionType = TransactionType::Receive;
+    if &transaction_type == &"ship".to_string() {
+      tx_type = TransactionType::Ship;
+    }
+    TransactionOperation {
+      tx_type: tx_type,
+      item: item,
+      quantity: quantity
+    }
+  }
+}
+pub struct Warehouse {
+  items: HashMap<String,u32>,
+}
+impl Warehouse {
+  pub fn process(&mut self, transactions: &mut Vec<TransactionOperation>) {
+    for curr_transaction in transactions.drain(..) {
+      let count = self.items.entry(curr_transaction.item.clone()).or_insert(0);
+      match curr_transaction.tx_type {
+        TransactionType::Receive => *count += curr_transaction.quantity,
+        TransactionType::Ship => if *count < curr_transaction.quantity {
+          *count = 0;
+        }else{
+          *count -= curr_transaction.quantity;
+        },
+      }
+    }
+  }
+  pub fn lookup(&self,item: String) -> u32 {
+    match self.items.get(&item) {
+      Some(x) => *x,
+      None => 0u32
+    }
+  }
+  pub fn new() -> Self {
+    Warehouse {
+      items: HashMap::new(),
     }
   }
 }
