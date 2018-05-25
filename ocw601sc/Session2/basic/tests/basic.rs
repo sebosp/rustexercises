@@ -18,4 +18,10 @@ mod tests {
     let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![10i64, -3i64, 4i64, -123i64, 10i64],true, true);
     assert_eq!(transduce_res, vec![Ok(30i64), Ok(-9i64), Ok(12i64), Ok(-369i64), Ok(30i64)]);
   }
+  #[test]
+  fn test_abc() {
+    let mut test_transduce = ABC::new(0);
+    let transduce_res: Vec<Result<bool,String>> = test_transduce.transduce(vec!['a','b','c','a','b'],true, true);
+    assert_eq!(transduce_res, vec![Ok(true), Ok(true), Ok(true), Ok(true), Ok(true)]);
+  }
 }
