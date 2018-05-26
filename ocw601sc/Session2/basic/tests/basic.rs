@@ -31,6 +31,8 @@ mod tests {
     let mut test_transduce = UpDown::new(0);
     let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec!['u','u','u','d','d','u'],true, true);
     assert_eq!(transduce_res, vec![Ok(1), Ok(2), Ok(3), Ok(2), Ok(1), Ok(2)]);
+    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec!['o'],true, true);
+    assert_eq!(transduce_res, vec![Err("Invalid char for UpDown".to_string())]);
   }
   #[test]
   fn test_delay() {
@@ -40,5 +42,11 @@ mod tests {
     let mut test_transduce2 = Delay::new(100);
     let transduce_res: Vec<Result<i64,String>> = test_transduce2.transduce(vec![3,1,2,5,9],true, true);
     assert_eq!(transduce_res, vec![Ok(100), Ok(3), Ok(1), Ok(2), Ok(5)]);
+  }
+  #[test]
+  fn test_average2() {
+    let mut test_transduce = Average2::new(0);
+    let transduce_res: Vec<Result<f64,String>> = test_transduce.transduce(vec![100,-3, 4, -123, 10],true, true);
+    assert_eq!(transduce_res, vec![Ok(50f64), Ok(48.5f64), Ok(0.5f64), Ok(-59.5f64), Ok(-56.5f64)]);
   }
 }
