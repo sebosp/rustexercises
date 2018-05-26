@@ -1,23 +1,44 @@
-pub trait StateMachine<StateType=Self> {
-  type State;
+pub trait StateMachine {
+  type StateType;
   type InputType;
   type OutputType;
-  fn new(initial_value: StateType) -> Self;
+  fn new(initial_value: Self::StateType) -> Self;
   fn start(&mut self);
-  fn step(&mut self, inp: Self::InputType) -> Self::OutputType;
-  fn get_next_state(&self, state: StateType, inp: Self::InputType) -> Self::State;
-  fn get_next_values(&self, state: StateType, inp: Self::InputType) -> (Self::State,Self::OutputType);
-  fn transduce(&mut self, inp: Vec<Self::InputType>, verbose: bool, compact: bool) -> Vec<Result<Self::OutputType, String>>;
+  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String>;
+  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>;
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String>;
+  fn verbose_state(&self) -> String;
+  fn verbose_step(&self, inp: &Self::InputType, outp: &Self::OutputType) -> String;
+  fn transduce(&mut self, inp: Vec<Self::InputType>, verbose: bool, _: bool) -> Vec<Result<Self::OutputType, String>> {
+    let mut res: Vec<Result<Self::OutputType, String>> = Vec::new();
+    if verbose {
+      self.verbose_state();
+    }
+    for cur_inp in inp {
+      match self.step(&cur_inp) {
+        Ok(cur_out) => {
+          if verbose {
+            self.verbose_step(&cur_inp,&cur_out);
+          }
+          res.push(Ok(cur_out));
+        },
+        Err(e) => {
+          res.push(Err(e));
+        }
+      };
+    }
+    res
+  }
 }
 pub struct Accumulator {
   pub start_state: i64,
   pub state: i64,
 }
-impl StateMachine<i64> for Accumulator {
-  type State = i64;
+impl StateMachine for Accumulator {
+  type StateType = i64;
   type InputType = i64;
   type OutputType = i64;
-  fn new(initial_value: i64) -> Self{
+  fn new(initial_value: Self::StateType) -> Self {
     Accumulator {
       start_state: initial_value,
       state: initial_value
@@ -26,112 +47,170 @@ impl StateMachine<i64> for Accumulator {
   fn start(&mut self) {
     self.state = self.start_state;
   }
-  fn step(&mut self, inp: i64) -> i64 {
-    let outp:(i64,i64) = self.get_next_values(self.state, inp);
+  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
+    Ok(inp + state)
+  }
+  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+    let next_state = self.get_next_state(state,inp)?;
+    Ok((next_state,next_state))
+  }
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;
     self.state = outp.0;
-    outp.1
+    Ok(outp.1)
   }
-  fn get_next_state(&self, state: i64, inp: i64) -> i64 {
-    inp + state
+  fn verbose_state(&self) -> String {
+     format!("Start state: {}",self.state)
   }
-  fn get_next_values(&self, state: i64, inp: i64) -> (i64,i64) {
-    let next_state = self.get_next_state(state,inp);
-    (next_state,next_state)
-  }
-  fn transduce(&mut self, inp: Vec<i64>, verbose: bool, _: bool) -> Vec<Result<i64, String>> {
-    let mut res: Vec<Result<i64, String>> = Vec::new();
-    if verbose {
-      println!("Accumulator Start state: {}", self.state);
-    }
-    for cur_inp in inp {
-      let cur_out = self.step(cur_inp);
-      if verbose {
-        println!("In: {} Out: {} Next State: {}", cur_inp, cur_out, self.state);
-      }
-      res.push(Ok(self.state));
-    }
-    res
+  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
+     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
   }
 }
 pub struct Gain {
   pub k: i64,
 }
-impl StateMachine<i64> for Gain {
-  type State = i64;
+impl StateMachine for Gain {
+  type StateType = i64;
   type InputType = i64;
   type OutputType = i64;
-  fn new(initial_value: i64) -> Self{
+  fn new(initial_value: Self::StateType) -> Self {
     Gain {
       k: initial_value
     }
   }
   fn start(&mut self){}
-  fn step(&mut self, inp: i64) -> i64 {
-    let outp:(i64,i64) = self.get_next_values(0i64,inp);
-    outp.1
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(Self::StateType::from(0),*inp)?;
+    Ok(outp.1)
   }
-  fn get_next_state(&self, _: i64, inp: i64) -> i64 {
-    inp * self.k
+  fn get_next_state(&self, _: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
+    Ok(inp * self.k)
   }
-  fn get_next_values(&self, unused: i64, inp: i64) -> (i64,i64) {
-    let next_state = self.get_next_state(unused,inp);
-    (next_state,next_state)
+  fn get_next_values(&self, unused: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+    let next_state = self.get_next_state(unused,inp)?;
+    Ok((next_state,next_state))
   }
-  fn transduce(&mut self, inp: Vec<i64>, verbose: bool, _: bool) -> Vec<Result<i64, String>> {
-    let mut res: Vec<Result<i64, String>> = Vec::new();
-    for cur_inp in inp {
-      let cur_out = self.step(cur_inp);
-      if verbose {
-        println!("Gain In: {} Out: {} Next State: {}", cur_inp, cur_out, self.k);
-      }
-      res.push(Ok(cur_out));
-    }
-    res
+  fn verbose_state(&self) -> String {
+     format!("Gain K: {}",self.k)
+  }
+  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
+     format!("In: {} Out: {} Next State: {}", inp, outp, self.k)
   }
 }
 pub struct ABC {
   pub state: i8,
 }
-impl StateMachine<i8> for ABC {
-  type State = i8;
+impl StateMachine for ABC {
+  type StateType = i8;
   type InputType = char;
   type OutputType = bool;
-  fn new(initial_value: i8) -> Self {
+  fn new(initial_value: Self::StateType) -> Self {
     ABC {
       state: initial_value
     }
   }
   fn start(&mut self){
-    self.state = 0i8;
+    self.state = Self::StateType::from(0);
   }
-  fn step(&mut self, inp: char) -> bool {
-    let outp:(i8,bool) = self.get_next_values(self.state,inp);
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;
     self.state = outp.0;
-    outp.1
+    Ok(outp.1)
   }
-  fn get_next_state(&self, _: i8, _: char) -> i8 {
-    0i8
+  fn get_next_state(&self, _: Self::StateType, _: Self::InputType) -> Result<Self::StateType, String> {
+    Ok(Self::StateType::from(0))
   }
-  fn get_next_values(&self, state: i8, inp: char) -> (i8,bool) {
+  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
     if state == 0 && inp == 'a' {
-      (1i8, true)
+      Ok((Self::StateType::from(1), true))
     } else if state == 1 && inp == 'b' {
-      (2i8, true)
+      Ok((Self::StateType::from(2), true))
     } else if state == 2 && inp == 'c' {
-      (0i8, true)
-    } else {
-      (3i8, false)
+      Ok((Self::StateType::from(0), true))
+    } else if inp != 'a' && inp != 'b' && inp != 'c' {
+      Err("Unsupported character".to_string())
+    }else {
+      Ok((Self::StateType::from(3), false))
     }
   }
-  fn transduce(&mut self, inp: Vec<char>, verbose: bool, _: bool) -> Vec<Result<bool, String>> {
-    let mut res: Vec<Result<bool, String>> = Vec::new();
-    for cur_inp in inp {
-      let cur_out = self.step(cur_inp);
-      if verbose {
-        println!("ABC In: {} Out: {} Next State: {}", cur_inp, cur_out, self.state);
-      }
-      res.push(Ok(cur_out));
+  fn verbose_state(&self) -> String {
+     format!("Start state: {}",self.state)
+  }
+  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
+     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  }
+}
+pub struct UpDown {
+  pub state: i64,
+}
+impl StateMachine for UpDown {
+  type StateType = i64;
+  type InputType = char;
+  type OutputType = i64;
+  fn new(initial_value: Self::StateType) -> Self {
+    UpDown {
+      state: initial_value
     }
-    res
+  }
+  fn start(&mut self){
+    self.state = Self::StateType::from(0);
+  }
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;
+    self.state = outp.0;
+    Ok(outp.1)
+  }
+  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
+    if inp == 'u' {
+      Ok(state + Self::StateType::from(1))
+    } else  if inp == 'd' {
+      Ok(state - Self::StateType::from(1))
+    } else {
+      Err("Invalid direction for UpDown".to_string())
+    }
+  }
+  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+    let next_state = self.get_next_state(state,inp)?;
+    Ok((next_state,next_state))
+  }
+  fn verbose_state(&self) -> String {
+     format!("Start state: {}",self.state)
+  }
+  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
+     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  }
+}
+pub struct Delay {
+  pub state: i64,
+}
+impl StateMachine for Delay {
+  type StateType = i64;
+  type InputType = i64;
+  type OutputType = i64;
+  fn new(initial_value: Self::StateType) -> Self {
+    Delay {
+      state: initial_value
+    }
+  }
+  fn start(&mut self){
+    self.state = Self::StateType::from(0);
+  }
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;
+    self.state = outp.0;
+    Ok(outp.1)
+  }
+  fn get_next_state(&self, state: Self::StateType, _: Self::InputType) -> Result<Self::StateType, String> {
+    Ok(state)
+  }
+  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+    let next_state = self.get_next_state(state,inp)?;
+    Ok((inp,next_state))
+  }
+  fn verbose_state(&self) -> String {
+     format!("Start state: {}",self.state)
+  }
+  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
+     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
   }
 }
