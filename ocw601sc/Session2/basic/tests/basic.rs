@@ -1,7 +1,14 @@
-extern crate sm_basics;
+extern crate state_machine;
 #[cfg(test)]
 mod tests {
-  use sm_basics::*;
+  use state_machine::*;
+  use state_machine::accumulator::*;
+  use state_machine::gain::*;
+  use state_machine::abc::*;
+  use state_machine::updown::*;
+  use state_machine::delay::*;
+  use state_machine::average2::*;
+  use state_machine::sumlast3::*;
   #[test]
   fn test_accumulator() {
     let mut test = Accumulator::new(0);
@@ -48,5 +55,11 @@ mod tests {
     let mut test_transduce = Average2::new(0);
     let transduce_res: Vec<Result<f64,String>> = test_transduce.transduce(vec![100,-3, 4, -123, 10],true, true);
     assert_eq!(transduce_res, vec![Ok(50f64), Ok(48.5f64), Ok(0.5f64), Ok(-59.5f64), Ok(-56.5f64)]);
+  }
+  #[test]
+  fn test_sumlast3() {
+    let mut test_transduce = SumLast3::new((0,0));
+    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![2,1,3,4,10,1,2,1,5],true, true);
+    assert_eq!(transduce_res, vec![Ok(2), Ok(3), Ok(6), Ok(8), Ok(17), Ok(15), Ok(13),Ok(4),Ok(8)]);
   }
 }
