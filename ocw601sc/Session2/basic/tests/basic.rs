@@ -9,6 +9,7 @@ mod tests {
   use state_machine::delay::*;
   use state_machine::average2::*;
   use state_machine::sumlast3::*;
+  use state_machine::selector::*;
   #[test]
   fn test_accumulator() {
     let mut test = Accumulator::new(0);
@@ -61,5 +62,19 @@ mod tests {
     let mut test_transduce = SumLast3::new((0,0));
     let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![2,1,3,4,10,1,2,1,5],true, true);
     assert_eq!(transduce_res, vec![Ok(2), Ok(3), Ok(6), Ok(8), Ok(17), Ok(15), Ok(13),Ok(4),Ok(8)]);
+  }
+  #[test]
+  fn test_selector() {
+    let max_items:usize = 3;
+    let test_next_values = Selector::new(max_items);
+    let vec1 = vec![2i64,1i64,3i64,4i64];
+    let vec2 = vec![4i64,10i64];
+    let next_state1: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(max_items, vec1);
+    assert_eq!(next_state1, Ok((max_items,vec![2i64,1i64, 3i64])));
+    let next_state2: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(max_items, vec2);
+    assert_eq!(next_state2, Err("Requested index out of bounds".to_string()));
+    // Not sure how to run transduce in this case as it would need to send a mut ref to step...
+    //let transduce_res: Vec<Result<Vec<i64>,String>> = test_transduce.transduce(vec![&mut vec1,&mut vec2],true, true);
+    //assert_eq!(transduce_res, vec![Ok(vec![2i64,1i64]), Err("Requested index out of bounds".to_string())]);
   }
 }

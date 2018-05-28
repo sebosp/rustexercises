@@ -14,6 +14,7 @@ pub mod updown;
 pub mod delay;
 pub mod average2;
 pub mod sumlast3;
+pub mod selector;
 pub trait StateMachine {
   type StateType;
   type InputType;
