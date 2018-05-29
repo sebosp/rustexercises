@@ -10,6 +10,7 @@ mod tests {
   use state_machine::average2::*;
   use state_machine::sumlast3::*;
   use state_machine::selector::*;
+  use state_machine::simple_parking_gate::*;
   #[test]
   fn test_accumulator() {
     let mut test = Accumulator::new(0);
@@ -76,5 +77,82 @@ mod tests {
     // Not sure how to run transduce in this case as it would need to send a mut ref to step...
     //let transduce_res: Vec<Result<Vec<i64>,String>> = test_transduce.transduce(vec![&mut vec1,&mut vec2],true, true);
     //assert_eq!(transduce_res, vec![Ok(vec![2i64,1i64]), Err("Requested index out of bounds".to_string())]);
+  }
+  #[test]
+  fn test_simple_parking_gate() {
+    let mut test_transduce = SimpleParkingGate::new(GateState::Waiting);
+    let test_input = vec![
+      GateSensors{
+        car_at_gate: false, car_just_existed: false, position: GatePosition::Bottom
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Bottom
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Bottom
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed:  true, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed:  true, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Top
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Middle
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Bottom
+      },
+      GateSensors{
+        car_at_gate:  true, car_just_existed: false, position: GatePosition::Bottom
+      },
+    ];
+    let transduce_res: Vec<Result<String,String>> = test_transduce.transduce(test_input,true, true);
+    assert_eq!(transduce_res, vec![
+      Ok("nop".to_string()),
+      Ok("raise".to_string()),
+      Ok("raise".to_string()),
+      Ok("raise".to_string()),
+      Ok("raise".to_string()),
+      Ok("raise".to_string()),
+      Ok("nop".to_string()),
+      Ok("nop".to_string()),
+      Ok("nop".to_string()),
+      Ok("lower".to_string()),
+      Ok("lower".to_string()),
+      Ok("lower".to_string()),
+      Ok("lower".to_string()),
+      Ok("lower".to_string()),
+      Ok("lower".to_string()),
+      Ok("nop".to_string()),
+      Ok("raise".to_string()),
+    ]);
   }
 }
