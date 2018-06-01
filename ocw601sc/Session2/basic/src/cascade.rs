@@ -51,9 +51,9 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+    format!("Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
-  fn verbose_step(&self,_: &Self::InputType, _: &Self::OutputType) -> String {
-     format!("(SM1:{}, SM2:{})", self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_step(&self, _: &Self::InputType, _: &Self::OutputType) -> String {
+    format!("Step: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
 }

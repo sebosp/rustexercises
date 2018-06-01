@@ -158,7 +158,7 @@ mod tests {
   }
   #[test]
   fn test_cascade_delay() {
-    let mut cascade: Cascade<Delay,Delay> = Cascade::new((22,99));
+    let mut cascade: Cascade<Delay,Delay> = Cascade::new((99,22));
     let transduce_res: Vec<Result<i64,String>> = cascade.transduce(vec![3,8,2,4,6,5],true, true);
     assert_eq!(transduce_res, vec![Ok(22), Ok(99), Ok(3), Ok(8), Ok(2), Ok(4)]);
   }
