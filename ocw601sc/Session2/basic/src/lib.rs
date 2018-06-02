@@ -7,6 +7,7 @@
 //! determined by the input, state machines have a performance that is 
 //! determined by its history.
 //! [Source](https://ocw.mit.edu/courses/electrical-engineering-and-computer-science/6-01sc-introduction-to-electrical-engineering-and-computer-science-i-spring-2011/unit-1-software-engineering/state-machines/MIT6_01SCS11_chap04.pdf)
+extern crate num_traits;
 pub mod accumulator;
 pub mod gain;
 pub mod abc;
@@ -17,6 +18,7 @@ pub mod sumlast3;
 pub mod selector;
 pub mod simple_parking_gate;
 pub mod cascade;
+pub mod increment;
 pub trait StateMachine {
   type StateType;
   type InputType;

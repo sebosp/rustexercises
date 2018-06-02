@@ -12,6 +12,7 @@ mod tests {
   use state_machine::selector::*;
   use state_machine::simple_parking_gate::*;
   use state_machine::cascade::*;
+  use state_machine::increment::*;
   #[test]
   fn test_accumulator() {
     let mut test = Accumulator::new(0);
@@ -161,5 +162,11 @@ mod tests {
     let mut cascade: Cascade<Delay,Delay> = Cascade::new((99,22));
     let transduce_res: Vec<Result<i64,String>> = cascade.transduce(vec![3,8,2,4,6,5],true, true);
     assert_eq!(transduce_res, vec![Ok(22), Ok(99), Ok(3), Ok(8), Ok(2), Ok(4)]);
+  }
+  #[test]
+  fn test_increment() {
+    let mut test_transduce = Increment::new(3i64);
+    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![1i64,2i64,3i64,4i64,5i64],true, true);
+    assert_eq!(transduce_res, vec![Ok(4i64), Ok(5i64), Ok(6i64), Ok(7i64), Ok(8i64)]);
   }
 }
