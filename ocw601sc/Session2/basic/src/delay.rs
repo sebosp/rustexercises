@@ -4,16 +4,23 @@
 //! The state of a Delay machine is just the input from the previous step, and
 //! the output is the state (which is, therefore, the input from the previous
 //! time step). The Delay struct is also knows as *_R_*
-pub struct Delay {
-  pub state: i64,
+extern crate num_traits;
+use num_traits::*;
+use std::fmt::Display;
+pub struct Delay<T>
+where T: Num + Display + Clone + Copy
+{
+  pub state: T,
 }
-impl super::StateMachine for Delay {
+impl<T> super::StateMachine for Delay<T>
+where T: Num + Display + Clone + Copy
+{
   /// `StateType`(S) = numbers
-  type StateType = i64;
+  type StateType = T;
   /// `InputType`(I) = numbers
-  type InputType = i64;
+  type InputType = T;
   /// `OutputType`(O) = numbers
-  type OutputType = i64;
+  type OutputType = T;
   /// `initial_value`(_s0_) is defined when initialized.
   fn new(initial_value: Self::StateType) -> Self {
     Delay {
@@ -21,7 +28,7 @@ impl super::StateMachine for Delay {
     }
   }
   fn start(&mut self){
-    self.state = Self::StateType::from(0);
+    self.state = T::zero();
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
     let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;

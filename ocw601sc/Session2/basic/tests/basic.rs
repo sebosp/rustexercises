@@ -56,8 +56,8 @@ mod tests {
   }
   #[test]
   fn test_average2() {
-    let mut test_transduce = Average2::new(0);
-    let transduce_res: Vec<Result<f64,String>> = test_transduce.transduce(vec![100,-3, 4, -123, 10],true, true);
+    let mut test_transduce = Average2::new(0f64);
+    let transduce_res: Vec<Result<f64,String>> = test_transduce.transduce(vec![100f64,-3f64, 4f64, -123f64, 10f64],true, true);
     assert_eq!(transduce_res, vec![Ok(50f64), Ok(48.5f64), Ok(0.5f64), Ok(-59.5f64), Ok(-56.5f64)]);
   }
   #[test]
@@ -159,9 +159,9 @@ mod tests {
   }
   #[test]
   fn test_cascade_delay() {
-    let mut cascade: Cascade<Delay,Delay> = Cascade::new((99,22));
-    let transduce_res: Vec<Result<i64,String>> = cascade.transduce(vec![3,8,2,4,6,5],true, true);
-    assert_eq!(transduce_res, vec![Ok(22), Ok(99), Ok(3), Ok(8), Ok(2), Ok(4)]);
+    let mut cascade: Cascade<Delay<i64>,Delay<i64>> = Cascade::new((99i64,22i64));
+    let transduce_res: Vec<Result<i64,String>> = cascade.transduce(vec![3i64,8i64,2i64,4i64,6i64,5i64],true, true);
+    assert_eq!(transduce_res, vec![Ok(22i64), Ok(99i64), Ok(3i64), Ok(8i64), Ok(2i64), Ok(4i64)]);
   }
   #[test]
   fn test_increment() {

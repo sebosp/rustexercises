@@ -54,3 +54,44 @@ impl super::StateMachine for ABC {
      format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
   }
 }
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use super::super::*;
+  #[test]
+  fn it_gets_next_values_good_seq() {
+    let test = ABC::new(0);
+    assert_eq!(test.get_next_values(0i8,'a'),Ok((1i8,true)));
+    assert_eq!(test.get_next_values(1i8,'b'),Ok((2i8,true)));
+    assert_eq!(test.get_next_values(2i8,'c'),Ok((0i8,true)));
+    assert_eq!(test.get_next_values(0i8,'a'),Ok((1i8,true)));
+    assert_eq!(test.get_next_values(1i8,'b'),Ok((2i8,true)));
+    assert_eq!(test.get_next_values(2i8,'c'),Ok((0i8,true)));
+  }
+  #[test]
+  fn it_gets_next_values_bad_seq() {
+    let test = ABC::new(0);
+    assert_eq!(test.get_next_values(2i8,'b'),Ok((3i8,false)));
+  }
+  #[test]
+  fn it_gets_next_values_bad_char() {
+    let test = ABC::new(0);
+    assert_eq!(test.get_next_values(2i8,'d'),Err("Unsupported character".to_string()));
+  }
+  #[test]
+  fn it_steps_good_seq() {
+    let mut test = ABC::new(0);
+    assert_eq!(test.step(&'a'),Ok(true));
+    assert_eq!(test.state,1);
+  }
+  #[test]
+  fn it_steps_bad_seq() {
+    let mut test = ABC::new(0);
+    assert_eq!(test.step(&'a'),Ok(true));
+    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.state,3);
+  }
+}
