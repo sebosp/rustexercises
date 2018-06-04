@@ -52,7 +52,7 @@ mod tests {
   use super::*;
   use super::super::*;
   #[test]
-  fn it_gets_next_values_good_seq() {
+  fn it_gets_next_values() {
     let test = Accumulator::new(0);
     assert_eq!(test.get_next_values(0i8,0i8),Ok((0i8,0i8)));
     assert_eq!(test.get_next_values(0i8,1i8),Ok((1i8,1i8)));
