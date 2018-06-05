@@ -57,3 +57,41 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
     format!("Step: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
 }
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use super::super::*;
+  use accumulator::Accumulator;
+  use average2::Average2;
+  #[test]
+  fn it_cascades_accumulators_next_values() {
+    let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
+    assert_eq!(test.get_next_values((0i8,0i8),0i8),Ok(((0i8,0i8),0i8)));
+    assert_eq!(test.get_next_values((3i8,5i8),7i8),Ok(((10i8,15i8),15i8)));
+    assert_eq!(test.get_next_values((3i8,5i8),7i8),Ok(((10i8,15i8),15i8)));
+  }
+  #[test]
+  fn it_cascades_accumulators_steps() {
+    let mut test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
+    assert_eq!(test.step(&3i8),Ok(6i8));
+    assert_eq!(test.state,(4i8,6i8));
+    assert_ne!(test.step(&3i8),Ok(6i8));
+    assert_ne!(test.state,(4i8,6i8));
+  }
+  #[test]
+  fn it_cascades_average2_next_values() {
+    // Cascade needs to be Trait `StateMachine` compliant, for Average2
+    // the OutputType in hardcoded as f64, thus it can only be f64
+    let test: Cascade<Average2<f64>,Average2<f64>> = Cascade::new((1f64,2f64));
+    assert_eq!(test.get_next_values((0f64,0f64),0f64),Ok(((0f64,0f64),0f64)));
+    assert_eq!(test.get_next_values((3f64,5f64),7f64),Ok(((7f64,5f64),5f64)));
+  }
+  #[test]
+  fn it_cascades_average2_steps() {
+    let mut test: Cascade<Average2<f64>,Average2<f64>> = Cascade::new((1f64,2f64));
+    assert_eq!(test.step(&3f64),Ok(2f64));
+    assert_eq!(test.state,(3f64,2f64));
+    assert_eq!(test.step(&2f64),Ok(2.25f64));
+    assert_ne!(test.state,(3f64,2f64));
+  }
+}

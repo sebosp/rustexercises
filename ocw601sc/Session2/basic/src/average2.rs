@@ -91,4 +91,11 @@ mod tests {
     let test = Average2::new(0f64);
     assert_eq!(test.get_next_values(f64::MAX,f64::MAX),Err("Adding numbers reached infinity".to_string()));
   }
+  #[test]
+  fn it_gets_next_state() {
+    let test = Average2::new(0);
+    assert_eq!(test.get_next_state(0i8,0i8),Ok(0i8));
+    assert_eq!(test.get_next_state(0i8,1i8),Ok(1i8));
+    assert_eq!(test.get_next_state(0i8,2i8),Ok(2i8));
+  }
 }

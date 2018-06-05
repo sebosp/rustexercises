@@ -94,4 +94,14 @@ mod tests {
     assert_eq!(test.step(&'a'),Ok(false));
     assert_eq!(test.state,3);
   }
+  #[test]
+  fn it_gets_next_state() {
+    let test = ABC::new(0);
+    assert_eq!(test.get_next_state(0i8,'a'),Ok(0i8));
+    assert_eq!(test.get_next_state(1i8,'b'),Ok(0i8));
+    assert_eq!(test.get_next_state(2i8,'c'),Ok(0i8));
+    assert_eq!(test.get_next_state(0i8,'a'),Ok(0i8));
+    assert_eq!(test.get_next_state(1i8,'b'),Ok(0i8));
+    assert_eq!(test.get_next_state(2i8,'c'),Ok(0i8));
+  }
 }

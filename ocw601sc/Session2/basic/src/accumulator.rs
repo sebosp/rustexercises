@@ -58,6 +58,12 @@ mod tests {
     assert_eq!(test.get_next_values(0i8,1i8),Ok((1i8,1i8)));
   }
   #[test]
+  fn it_gets_next_state() {
+    let test = Accumulator::new(0);
+    assert_eq!(test.get_next_state(0i8,0i8),Ok(0i8));
+    assert_eq!(test.get_next_state(0i8,1i8),Ok(1i8));
+  }
+  #[test]
   fn it_steps_seq() {
     let mut test = Accumulator::new(0);
     assert_eq!(test.step(&1i8),Ok(1i8));
