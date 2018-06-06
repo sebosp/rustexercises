@@ -42,3 +42,26 @@ where T: Num + Display + Clone + Copy
      format!("In: {} Out: {} Next State: {}", inp, outp, self.incr)
   }
 }
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use super::super::*;
+  #[test]
+  fn it_gets_next_values() {
+    let test = Increment::new(0f64);
+    assert_eq!(test.get_next_values(0f64,0f64),Ok((0f64,0f64)));
+    assert_eq!(test.get_next_values(0f64,0f64),Ok((0f64,0f64)));
+  }
+  #[test]
+  fn it_steps() {
+    let mut test = Increment::new(1f64);
+    assert_eq!(test.step(&1f64),Ok(2f64));
+    assert_eq!(test.step(&1f64),Ok(2f64));
+    assert_eq!(test.incr,1f64);
+  }
+  #[test]
+  fn it_gets_next_state() {
+    let test = Increment::new(0f64);
+    assert_eq!(test.get_next_state(1f64,1f64),Ok(2f64));
+  }
+}
