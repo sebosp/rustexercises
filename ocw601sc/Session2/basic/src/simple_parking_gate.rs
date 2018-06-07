@@ -26,13 +26,13 @@ pub enum GatePosition {
   Middle,
   Bottom
 }
-#[derive(Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 pub struct GateSensors {
   pub position: GatePosition,
   pub car_at_gate: bool,
   pub car_just_existed: bool
 }
-#[derive(Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GateState {
   Waiting,
   Raising,
@@ -64,6 +64,8 @@ impl super::StateMachine for SimpleParkingGate {
       GateState::Waiting => {
         if inp.car_at_gate {
           next_state = GateState::Raising;
+        } else if inp.position != GatePosition::Bottom {
+          return Err("GatePosition and GateState sensors have invalid data".to_string());
         }
       },
       GateState::Raising => {
@@ -74,6 +76,8 @@ impl super::StateMachine for SimpleParkingGate {
       GateState::Raised => {
         if inp.car_just_existed {
           next_state = GateState::Lowering;
+        } else if inp.position != GatePosition::Top {
+          return Err("GatePosition and GateState sensors have invalid data".to_string());
         }
       },
       GateState::Lowering => {
@@ -138,5 +142,55 @@ impl SimpleParkingGate {
         }
       },
     }
+  }
+}
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use super::super::*;
+  #[test]
+  fn it_gets_next_values_gate_down_no_car() {
+    let test = SimpleParkingGate::new(GateState::Waiting);
+    // GatePosition::Bottom
+    assert_eq!(
+      test.get_next_values(
+        GateState::Waiting,
+        GateSensors {
+          car_at_gate: false,
+          car_just_existed: false,
+          position: GatePosition::Bottom
+        }
+      ),Ok((GateState::Waiting,"nop".to_string()))
+    );
+    assert_eq!(
+      test.get_next_values(
+        GateState::Raising,
+        GateSensors {
+          car_at_gate: false,
+          car_just_existed: false,
+          position: GatePosition::Bottom
+        }
+      ),Ok((GateState::Raising,"raise".to_string()))
+    );
+    assert_eq!(
+      test.get_next_values(
+        GateState::Raised,
+        GateSensors {
+          car_at_gate: false,
+          car_just_existed: false,
+          position: GatePosition::Bottom
+        }
+      ),Err("GatePosition and GateState sensors have invalid data".to_string())
+    );
+    assert_eq!(
+      test.get_next_values(
+        GateState::Lowering,
+        GateSensors {
+          car_at_gate: false,
+          car_just_existed: false,
+          position: GatePosition::Bottom
+        }
+      ),Ok((GateState::Waiting,"nop".to_string()))
+    );
   }
 }
