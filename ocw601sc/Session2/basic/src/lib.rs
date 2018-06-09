@@ -34,7 +34,7 @@ pub trait StateMachine {
   /// `get_next_state` given an input and a state will return the next state.
   /// the returned value will be treated both as the output and the next state
   /// of the machine, `get_next_values` function uses it to compute both values
-  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String>;
+  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String>;
   /// `get_next_values` defines both the next-state function and the output
   /// function, by taking the current state and input as arguments and
   /// returning a tuple containing both the next state and the output.
@@ -43,7 +43,7 @@ pub trait StateMachine {
   /// attributes of self). It must simply compute the necessary values and
   /// return them. We do not promise anything about how many times this method
   /// will be called and in what circumstances.
-  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>;
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>;
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String>;
   fn verbose_state(&self) -> String;
   fn verbose_step(&self, inp: &Self::InputType, outp: &Self::OutputType) -> String;

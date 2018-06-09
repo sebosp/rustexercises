@@ -24,15 +24,15 @@ where T: Num + Display + Clone + Copy
     }
   }
   fn start(&mut self) {}
-  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
-    Ok(inp + state)
+  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
+    Ok(*inp + *state)
   }
-  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
     let next_state = self.get_next_state(state,inp)?;
     Ok((next_state,next_state))
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.incr,*inp)?;
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.incr,inp)?;
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
@@ -49,8 +49,8 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = Increment::new(0f64);
-    assert_eq!(test.get_next_values(0f64,0f64),Ok((0f64,0f64)));
-    assert_eq!(test.get_next_values(0f64,0f64),Ok((0f64,0f64)));
+    assert_eq!(test.get_next_values(&0f64,&0f64),Ok((0f64,0f64)));
+    assert_eq!(test.get_next_values(&0f64,&0f64),Ok((0f64,0f64)));
   }
   #[test]
   fn it_steps() {
@@ -62,7 +62,7 @@ mod tests {
   #[test]
   fn it_gets_next_state() {
     let test = Increment::new(0i64);
-    assert_eq!(test.get_next_state(1i64,1i64),Ok(2i64));
-    assert_eq!(test.get_next_state(5i64,7i64),Ok(12i64));
+    assert_eq!(test.get_next_state(&1i64,&1i64),Ok(2i64));
+    assert_eq!(test.get_next_state(&5i64,&7i64),Ok(12i64));
   }
 }

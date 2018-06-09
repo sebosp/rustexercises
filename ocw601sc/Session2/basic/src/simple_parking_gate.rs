@@ -58,8 +58,8 @@ impl super::StateMachine for SimpleParkingGate {
   fn start(&mut self){
     self.state = GateState::Waiting;
   }
-  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
-    let mut next_state = state;
+  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
+    let mut next_state = *state;
     match state {
       GateState::Waiting => {
         if inp.car_at_gate {
@@ -88,13 +88,13 @@ impl super::StateMachine for SimpleParkingGate {
     };
     Ok(next_state)
   }
-  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
     let next_state = self.get_next_state(state,inp)?;
     Ok((next_state,self.verbose_output(next_state)))
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
     let temp_inp = inp;
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*temp_inp)?;
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,temp_inp)?;
     self.state = outp.0;
     Ok(outp.1)
   }
@@ -154,8 +154,8 @@ mod tests {
     // GatePosition::Bottom
     assert_eq!(
       test.get_next_values(
-        GateState::Waiting,
-        GateSensors {
+        &GateState::Waiting,
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
@@ -164,8 +164,8 @@ mod tests {
     );
     assert_eq!(
       test.get_next_values(
-        GateState::Raising,
-        GateSensors {
+        &GateState::Raising,
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
@@ -174,8 +174,8 @@ mod tests {
     );
     assert_eq!(
       test.get_next_values(
-        GateState::Raised,
-        GateSensors {
+        &GateState::Raised,
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
@@ -184,8 +184,8 @@ mod tests {
     );
     assert_eq!(
       test.get_next_values(
-        GateState::Lowering,
-        GateSensors {
+        &GateState::Lowering,
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom

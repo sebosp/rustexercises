@@ -24,12 +24,9 @@ impl super::StateMachine for UpDown {
   fn start(&mut self){
     self.state = Self::StateType::from(0);
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(self.state,*inp)?;
-    self.state = outp.0;
-    Ok(outp.1)
-  }
-  fn get_next_state(&self, state: Self::StateType, inp: Self::InputType) -> Result<Self::StateType, String> {
+  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
+    let inp = *inp;
+    let state = *state;
     if inp == 'u' {
       Ok(state + Self::StateType::from(1))
     } else  if inp == 'd' {
@@ -38,14 +35,43 @@ impl super::StateMachine for UpDown {
       Err("Invalid char for UpDown".to_string())
     }
   }
-  fn get_next_values(&self, state: Self::StateType, inp: Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
     let next_state = self.get_next_state(state,inp)?;
     Ok((next_state,next_state))
+  }
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,inp)?;
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
      format!("Start state: {}",self.state)
   }
   fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
      format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  }
+}
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use super::super::*;
+  #[test]
+  fn it_gets_next_values() {
+    let test = UpDown::new(0i64);
+    assert_eq!(test.get_next_values(&0i64,&'d'),Ok((-1i64,-1i64)));
+    assert_eq!(test.get_next_values(&0i64,&'u'),Ok((1i64,1i64)));
+  }
+  #[test]
+  fn it_steps() {
+    let mut test = UpDown::new(0i64);
+    assert_eq!(test.step(&'d'),Ok(-1i64));
+    assert_eq!(test.state,(-1i64));
+  }
+  #[test]
+  fn it_gets_next_state() {
+    let test = UpDown::new(0i64);
+    assert_eq!(test.get_next_state(&0i64,&'d'),Ok(-1i64));
+    assert_eq!(test.get_next_state(&-1i64,&'u'),Ok(0i64));
+    assert_eq!(test.get_next_state(&0i64,&'u'),Ok(1i64));
   }
 }
