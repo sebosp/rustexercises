@@ -61,7 +61,8 @@ mod tests {
   }
   #[test]
   fn it_gets_next_state() {
-    let test = Increment::new(0f64);
-    assert_eq!(test.get_next_state(1f64,1f64),Ok(2f64));
+    let test = Increment::new(0i64);
+    assert_eq!(test.get_next_state(1i64,1i64),Ok(2i64));
+    assert_eq!(test.get_next_state(5i64,7i64),Ok(12i64));
   }
 }

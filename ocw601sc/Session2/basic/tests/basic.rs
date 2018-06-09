@@ -69,16 +69,18 @@ mod tests {
   #[test]
   fn test_selector() {
     let max_items:usize = 3;
-    let test_next_values = Selector::new(max_items);
+    let test_next_values = Selector::new(3usize);
     let vec1 = vec![2i64,1i64,3i64,4i64];
     let vec2 = vec![4i64,10i64];
     let next_state1: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(max_items, vec1);
     assert_eq!(next_state1, Ok((max_items,vec![2i64,1i64, 3i64])));
     let next_state2: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(max_items, vec2);
     assert_eq!(next_state2, Err("Requested index out of bounds".to_string()));
-    // Not sure how to run transduce in this case as it would need to send a mut ref to step...
-    //let transduce_res: Vec<Result<Vec<i64>,String>> = test_transduce.transduce(vec![&mut vec1,&mut vec2],true, true);
-    //assert_eq!(transduce_res, vec![Ok(vec![2i64,1i64]), Err("Requested index out of bounds".to_string())]);
+    let vec1 = vec!['a','b','.'];
+    let vec2 = vec!['y','z'];
+    let mut test_transduce = Selector::new(3usize);
+    let transduce_res: Vec<Result<Vec<char>,String>> = test_transduce.transduce(vec![vec1,vec2],true, true);
+    assert_eq!(transduce_res, vec![Ok(vec!['a','b','.']), Err("Requested index out of bounds".to_string())]);
   }
   #[test]
   fn test_simple_parking_gate() {

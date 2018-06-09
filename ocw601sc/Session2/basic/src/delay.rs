@@ -66,4 +66,10 @@ mod tests {
     assert_eq!(test.step(&1i8),Ok(0i8));
     assert_eq!(test.state,1i8);
   }
+  #[test]
+  fn it_gets_next_state() {
+    let test = Delay::new(0);
+    assert_eq!(test.get_next_state(0i8,1i8),Ok(0i8));
+    assert_eq!(test.get_next_state(1i8,0i8),Ok(1i8));
+  }
 }

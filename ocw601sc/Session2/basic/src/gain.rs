@@ -63,5 +63,8 @@ mod tests {
   fn it_gets_next_state() {
     let test = Gain::new(0f64);
     assert_eq!(test.get_next_state(1f64,1f64),Ok(0f64));
+    let test2 = Gain::new(5f64);
+    assert_eq!(test2.get_next_state(1f64,1f64),Ok(5f64));
+    assert_eq!(test2.get_next_state(1f64,2f64),Ok(10f64));
   }
 }
