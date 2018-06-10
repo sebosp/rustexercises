@@ -17,8 +17,10 @@ pub mod average2;
 pub mod sumlast3;
 pub mod selector;
 pub mod simple_parking_gate;
-pub mod cascade;
 pub mod increment;
+pub mod cascade;
+pub mod parallel;
+pub mod fork;
 pub trait StateMachine {
   type StateType;
   type InputType;

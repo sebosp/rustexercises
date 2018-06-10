@@ -1,8 +1,9 @@
-//! # Parallel Composite StateMachine
+//! # Fork Composite StateMachine
 //! One input feeds two StateMachines, not to be confused with parallel
 //! execution (yet), both StateMachine Input is the same type/value.
-//! This could be thought of as a fork
-pub struct Parallel<SM1,SM2>
+//! This should be a Parallel Trait that simply has InputType the same
+//! for both state machines...
+pub struct Fork<SM1,SM2>
   where SM1: super::StateMachine,
         SM2: super::StateMachine
 {
@@ -10,37 +11,41 @@ pub struct Parallel<SM1,SM2>
   pub sm2: SM2,
   pub state: (<SM1>::StateType,<SM2>::StateType),
 }
-impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2> 
+impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2> 
   where SM1: super::StateMachine,
         SM2: super::StateMachine,
+        SM1: super::StateMachine<InputType=<SM2>::InputType>,
         <SM1>::StateType: Clone + Copy,
         <SM2>::StateType: Clone + Copy,
         <SM1>::InputType: Clone + Copy,
-        <SM2>::InputType: Clone + Copy,
 {
   /// `StateType`(S) = numbers
   type StateType = (<SM1>::StateType,<SM2>::StateType);
   /// `InputType`(I) = numbers
-  type InputType = (<SM1>::InputType,<SM2>::InputType);
+  type InputType = <SM1>::InputType;
   /// `OutputType`(O) = numbers
   type OutputType = (<SM1>::OutputType,<SM2>::OutputType);
   /// `initial_value`(_s0_) is usually 0;
   fn new(initial_value: Self::StateType) -> Self {
-    Parallel {
+    Fork {
       sm1: <SM1>::new(initial_value.0),
       sm2: <SM2>::new(initial_value.1),
       state: initial_value,
     }
   }
   fn start(&mut self) {}
-  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
-    let sm1_next_state = self.sm1.get_next_state(&state.0,&inp.0)?;
-    let sm2_next_state = self.sm2.get_next_state(&state.1,&inp.1)?;
+  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> 
+  where SM1: super::StateMachine<InputType=<SM2>::InputType>,
+  {
+    let sm1_next_state = self.sm1.get_next_state(&state.0,inp)?;
+    let sm2_next_state = self.sm2.get_next_state(&state.1,inp)?;
     Ok((sm1_next_state,sm2_next_state))
   }
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
-    let sm1_next_values = self.sm1.get_next_values(&state.0,&inp.0)?;
-    let sm2_next_values = self.sm2.get_next_values(&state.1,&inp.1)?;
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>
+  where SM1: super::StateMachine<InputType=<SM2>::InputType>,
+  {
+    let sm1_next_values = self.sm1.get_next_values(&state.0,inp)?;
+    let sm2_next_values = self.sm2.get_next_values(&state.1,inp)?;
     Ok(((sm1_next_values.0,sm2_next_values.0),(sm1_next_values.1,sm2_next_values.1)))
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
@@ -63,32 +68,32 @@ mod tests {
   use increment::Increment;
   #[test]
   fn it_get_next_values_accumulators() {
-    let test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
-    assert_eq!(test.get_next_values(&(0i8,0i8),&(0i8,0i8)),Ok(((0i8,0i8),(0i8,0i8))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&(7i8,7i8)),Ok(((10i8,12i8),(10i8,12i8))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&(7i8,7i8)),Ok(((10i8,12i8),(10i8,12i8))));
+    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    assert_eq!(test.get_next_values(&(0i8,0i8),&0i8),Ok(((0i8,0i8),(0i8,0i8))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,12i8),(10i8,12i8))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,12i8),(10i8,12i8))));
   }
   #[test]
   fn it_get_next_state_accumulators() {
-    let test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
-    assert_eq!(test.get_next_state(&(0i8,0i8),&(0i8,0i8)),Ok((0i8,0i8)));
-    assert_eq!(test.get_next_state(&(3i8,5i8),&(7i8,7i8)),Ok((10i8,12i8)));
-    assert_eq!(test.get_next_state(&(3i8,5i8),&(7i8,7i8)),Ok((10i8,12i8)));
+    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    assert_eq!(test.get_next_state(&(0i8,0i8),&0i8),Ok((0i8,0i8)));
+    assert_eq!(test.get_next_state(&(3i8,5i8),&7i8),Ok((10i8,12i8)));
+    assert_eq!(test.get_next_state(&(3i8,5i8),&7i8),Ok((10i8,12i8)));
   }
   #[test]
   fn it_steps_accumulators() {
-    let mut test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
-    assert_eq!(test.step(&(3i8,3i8)),Ok((4i8,5i8)));
+    let mut test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    assert_eq!(test.step(&3i8),Ok((4i8,5i8)));
     assert_eq!(test.state,(4i8,5i8));
-    assert_eq!(test.step(&(5i8,5i8)),Ok((9i8,10i8)));
+    assert_eq!(test.step(&5i8),Ok((9i8,10i8)));
     assert_eq!(test.state,(9i8,10i8));
   }
   #[test]
   fn it_steps_increments() {
-    let mut test: Parallel<Increment<i64>,Increment<i64>> = Parallel::new((100i64,1i64));
-    assert_eq!(test.step(&(3i64,3i64)),Ok((103i64,4i64)));
+    let mut test: Fork<Increment<i64>,Increment<i64>> = Fork::new((100i64,1i64));
+    assert_eq!(test.step(&3i64),Ok((103i64,4i64)));
     assert_eq!(test.state,(103i64,4i64));
-    assert_eq!(test.step(&(2i64,2i64)),Ok((105i64,6i64)));
+    assert_eq!(test.step(&2i64),Ok((105i64,6i64)));
     assert_eq!(test.state,(105i64,6i64));
   }
 }

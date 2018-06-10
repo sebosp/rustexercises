@@ -34,6 +34,7 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> 
   where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
   {
+    // In order to get the Output from StateMachine1, we need to go through get_next_values...
     let sm1_next_value = self.sm1.get_next_values(&state.0,inp)?;
     let sm2_next_state = self.sm2.get_next_state(&state.1,&sm1_next_value.1)?;
     Ok((sm1_next_value.0,sm2_next_state))
