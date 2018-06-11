@@ -41,17 +41,37 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
     let sm2_next_state = self.sm2.get_next_state(&state.1,inp)?;
     Ok((sm1_next_state,sm2_next_state))
   }
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> 
   where SM1: super::StateMachine<InputType=<SM2>::InputType>,
   {
-    let sm1_next_values = self.sm1.get_next_values(&state.0,inp)?;
-    let sm2_next_values = self.sm2.get_next_values(&state.1,inp)?;
-    Ok(((sm1_next_values.0,sm2_next_values.0),(sm1_next_values.1,sm2_next_values.1)))
+    match inp {
+      None      => Ok((*state,None)),
+      Some(inp) => {
+        let sm1_next_values = self.sm1.get_next_values(&state.0,Some(inp))?;
+        match sm1_next_values.1 {
+          None               => Err("FIXME:XXX:TODO".to_string()),
+          Some(sm1_next_val) => {
+            let sm2_next_values = self.sm2.get_next_values(&state.1,Some(inp))?;
+            match sm2_next_values.1 {
+              None               => Err("FIXME:XXX:TODO".to_string()),
+              Some(sm2_next_val) => {
+                Ok(((sm1_next_values.0,sm2_next_values.0),Some((sm1_next_val,sm2_next_val))))
+              }
+            }
+          }
+        }
+      }
+    }
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,inp)?;
-    self.state = outp.0;
-    Ok(outp.1)
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+    match outp.1 {
+      None           => Err("FIXME:XXX:TODO".to_string()),
+      Some(next_val) => {
+        self.state = outp.0;
+        Ok(next_val)
+      }
+    }
   }
   fn verbose_state(&self) -> String {
     format!("Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
@@ -69,9 +89,9 @@ mod tests {
   #[test]
   fn it_get_next_values_accumulators() {
     let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
-    assert_eq!(test.get_next_values(&(0i8,0i8),&0i8),Ok(((0i8,0i8),(0i8,0i8))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,12i8),(10i8,12i8))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,12i8),(10i8,12i8))));
+    assert_eq!(test.get_next_values(&(0i8,0i8),Some(&0i8)),Ok(((0i8,0i8),Some((0i8,0i8)))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,12i8),Some((10i8,12i8)))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,12i8),Some((10i8,12i8)))));
   }
   #[test]
   fn it_get_next_state_accumulators() {

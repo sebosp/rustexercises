@@ -29,25 +29,35 @@ impl super::StateMachine for ABC {
   /// situation in which it has seen an input that was not the one that was
   /// expected. Once the machine goes to state 3 (sometimes called a rejecting
   /// state), it never exits that state. 
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
-    let state = *state;
-    let inp = *inp;
-    if state == 0 && inp == 'a' {
-      Ok((Self::StateType::from(1), true))
-    } else if state == 1 && inp == 'b' {
-      Ok((Self::StateType::from(2), true))
-    } else if state == 2 && inp == 'c' {
-      Ok((Self::StateType::from(0), true))
-    } else if inp != 'a' && inp != 'b' && inp != 'c' {
-      Err("Unsupported character".to_string())
-    }else {
-      Ok((Self::StateType::from(3), false))
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
+    match inp {
+      None      => Ok((*state,None)),
+      Some(inp) => {
+        let state = *state;
+        let inp = *inp;
+        if state == 0 && inp == 'a' {
+          Ok((Self::StateType::from(1), Some(true)))
+        } else if state == 1 && inp == 'b' {
+          Ok((Self::StateType::from(2), Some(true)))
+        } else if state == 2 && inp == 'c' {
+          Ok((Self::StateType::from(0), Some(true)))
+        } else if inp != 'a' && inp != 'b' && inp != 'c' {
+          Err("Unsupported character".to_string())
+        }else {
+          Ok((Self::StateType::from(3), Some(false)))
+        }
+      }
     }
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,inp)?;
-    self.state = outp.0;
-    Ok(outp.1)
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+    match outp.1 {
+      None           => Ok(false),
+      Some(next_val) => {
+        self.state = outp.0;
+        Ok(next_val)
+      }
+    }
   }
   fn verbose_state(&self) -> String {
      format!("Start state: {}",self.state)
@@ -63,22 +73,22 @@ mod tests {
   #[test]
   fn it_gets_next_values_good_seq() {
     let test = ABC::new(0);
-    assert_eq!(test.get_next_values(&0i8,&'a'),Ok((1i8,true)));
-    assert_eq!(test.get_next_values(&1i8,&'b'),Ok((2i8,true)));
-    assert_eq!(test.get_next_values(&2i8,&'c'),Ok((0i8,true)));
-    assert_eq!(test.get_next_values(&0i8,&'a'),Ok((1i8,true)));
-    assert_eq!(test.get_next_values(&1i8,&'b'),Ok((2i8,true)));
-    assert_eq!(test.get_next_values(&2i8,&'c'),Ok((0i8,true)));
+    assert_eq!(test.get_next_values(&0i8,Some(&'a')),Ok((1i8,Some(true))));
+    assert_eq!(test.get_next_values(&1i8,Some(&'b')),Ok((2i8,Some(true))));
+    assert_eq!(test.get_next_values(&2i8,Some(&'c')),Ok((0i8,Some(true))));
+    assert_eq!(test.get_next_values(&0i8,Some(&'a')),Ok((1i8,Some(true))));
+    assert_eq!(test.get_next_values(&1i8,Some(&'b')),Ok((2i8,Some(true))));
+    assert_eq!(test.get_next_values(&2i8,Some(&'c')),Ok((0i8,Some(true))));
   }
   #[test]
   fn it_gets_next_values_bad_seq() {
     let test = ABC::new(0);
-    assert_eq!(test.get_next_values(&2i8,&'b'),Ok((3i8,false)));
+    assert_eq!(test.get_next_values(&2i8,Some(&'b')),Ok((3i8,Some(false))));
   }
   #[test]
   fn it_gets_next_values_bad_char() {
     let test = ABC::new(0);
-    assert_eq!(test.get_next_values(&2i8,&'d'),Err("Unsupported character".to_string()));
+    assert_eq!(test.get_next_values(&2i8,Some(&'d')),Err("Unsupported character".to_string()));
   }
   #[test]
   fn it_steps_good_seq() {

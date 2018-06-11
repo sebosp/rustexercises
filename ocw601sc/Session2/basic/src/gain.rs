@@ -24,16 +24,24 @@ where T: Num + Display + Clone + Copy
     }
   }
   fn start(&mut self){}
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&T::zero(),inp)?;
-    Ok(outp.1)
-  }
   fn get_next_state(&self, _: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
     Ok(*inp * self.k)
   }
-  fn get_next_values(&self, unused: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
-    let next_state = self.get_next_state(unused,inp)?;
-    Ok((next_state,next_state))
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
+    match inp {
+      None => Ok((*state,None)),
+      Some(inp) => {
+        let next_state = self.get_next_state(state,inp)?;
+        Ok((next_state,Some(next_state)))
+      }
+    }
+  }
+  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&T::zero(),Some(inp))?;
+    match outp.1 {
+      None => Ok(T::zero()),
+      Some(next_val) => Ok(next_val)
+    }
   }
   fn verbose_state(&self) -> String {
      format!("Gain K: {}",self.k)
@@ -49,8 +57,8 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = Gain::new(0f64);
-    assert_eq!(test.get_next_values(&0f64,&0f64),Ok((0f64,0f64)));
-    assert_eq!(test.get_next_values(&0f64,&0f64),Ok((0f64,0f64)));
+    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
+    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
   }
   #[test]
   fn it_steps() {

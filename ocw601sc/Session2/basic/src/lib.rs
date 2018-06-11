@@ -45,7 +45,7 @@ pub trait StateMachine {
   /// attributes of self). It must simply compute the necessary values and
   /// return them. We do not promise anything about how many times this method
   /// will be called and in what circumstances.
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>;
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>;
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String>;
   fn verbose_state(&self) -> String;
   fn verbose_step(&self, inp: &Self::InputType, outp: &Self::OutputType) -> String;

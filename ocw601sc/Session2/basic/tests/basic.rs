@@ -71,9 +71,9 @@ mod tests {
     let test_next_values = Selector::new(3usize);
     let vec1 = vec![2i64,1i64,3i64,4i64];
     let vec2 = vec![4i64,10i64];
-    let next_state1: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(&max_items, &vec1);
-    assert_eq!(next_state1, Ok((max_items,vec![2i64,1i64, 3i64])));
-    let next_state2: Result<(usize,Vec<i64>),String> = test_next_values.get_next_values(&max_items, &vec2);
+    let next_state1: Result<(usize,Option<Vec<i64>>),String> = test_next_values.get_next_values(&max_items, Some(&vec1));
+    assert_eq!(next_state1, Ok((max_items,Some(vec![2i64,1i64, 3i64]))));
+    let next_state2: Result<(usize,Option<Vec<i64>>),String> = test_next_values.get_next_values(&max_items, Some(&vec2));
     assert_eq!(next_state2, Err("Requested index out of bounds".to_string()));
     let vec1 = vec!['a','b','.'];
     let vec2 = vec!['y','z'];

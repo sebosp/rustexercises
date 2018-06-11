@@ -35,21 +35,45 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
   {
     // In order to get the Output from StateMachine1, we need to go through get_next_values...
-    let sm1_next_value = self.sm1.get_next_values(&state.0,inp)?;
-    let sm2_next_state = self.sm2.get_next_state(&state.1,&sm1_next_value.1)?;
-    Ok((sm1_next_value.0,sm2_next_state))
+    let sm1_next_value = self.sm1.get_next_values(&state.0,Some(inp))?;
+    match sm1_next_value.1 {
+      None               => Err("FIXME:XXX:TODO".to_string()),
+      Some(sm1_next_val) => {
+        let sm2_next_state = self.sm2.get_next_state(&state.1,&sm1_next_val)?;
+        Ok((sm1_next_value.0,sm2_next_state))
+      }
+    }
   }
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String>
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>
   where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
   {
-    let sm1_next_state = self.sm1.get_next_values(&state.0,inp)?;
-    let sm2_next_state = self.sm2.get_next_values(&state.1,&sm1_next_state.1)?;
-    Ok(((sm1_next_state.0,sm2_next_state.0),sm2_next_state.1))
+    match inp {
+      None => Ok((*state,None)),
+      Some(inp) => {
+        let sm1_next_value = self.sm1.get_next_values(&state.0,Some(inp))?;
+        match sm1_next_value.1 {
+          None               => Err("FIXME:XXX:TODO".to_string()),
+          Some(sm1_next_val) => {
+            let sm2_next_value = self.sm2.get_next_values(&state.1,Some(&sm1_next_val))?;
+            match sm2_next_value.1 {
+              None               => Err("FIXME:XXX:TODO".to_string()),
+              Some(sm2_next_val) =>
+                Ok(((sm1_next_value.0,sm2_next_value.0),Some(sm2_next_val)))
+            }
+          }
+        }
+      }
+    }
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,inp)?;
-    self.state = outp.0;
-    Ok(outp.1)
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+    match outp.1 {
+      None           => Err("FIXME:XXX:TODO".to_string()),
+      Some(next_val) => {
+        self.state = outp.0;
+        Ok(next_val)
+      }
+    }
   }
   fn verbose_state(&self) -> String {
     format!("Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
@@ -69,9 +93,9 @@ mod tests {
   #[test]
   fn it_cascades_accumulators_next_values() {
     let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
-    assert_eq!(test.get_next_values(&(0i8,0i8),&0i8),Ok(((0i8,0i8),0i8)));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,15i8),15i8)));
-    assert_eq!(test.get_next_values(&(3i8,5i8),&7i8),Ok(((10i8,15i8),15i8)));
+    assert_eq!(test.get_next_values(&(0i8,0i8),Some(&0i8)),Ok(((0i8,0i8),Some(0i8))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,15i8),Some(15i8))));
+    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,15i8),Some(15i8))));
   }
   #[test]
   fn it_cascades_accumulators_steps() {
@@ -86,8 +110,8 @@ mod tests {
     // Cascade needs to be Trait `StateMachine` compliant, for Average2
     // the OutputType in hardcoded as f64, thus it can only be f64
     let test: Cascade<Average2<f64>,Average2<f64>> = Cascade::new((1f64,2f64));
-    assert_eq!(test.get_next_values(&(0f64,0f64),&0f64),Ok(((0f64,0f64),0f64)));
-    assert_eq!(test.get_next_values(&(3f64,5f64),&7f64),Ok(((7f64,5f64),5f64)));
+    assert_eq!(test.get_next_values(&(0f64,0f64),Some(&0f64)),Ok(((0f64,0f64),Some(0f64))));
+    assert_eq!(test.get_next_values(&(3f64,5f64),Some(&7f64)),Ok(((7f64,5f64),Some(5f64))));
   }
   #[test]
   fn it_cascades_average2_steps() {

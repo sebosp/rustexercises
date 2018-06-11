@@ -36,16 +36,24 @@ where T: Debug + Clone + Copy
       Ok(self.k)
     }
   }
-  fn get_next_values(&self, unused: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType, Self::OutputType),String> {
-    // Might be expensive to clone the Vector if it's big.
-    let next_state = self.get_next_state(unused,inp)?;
-    let mut res: Self::OutputType = inp.to_vec();
-    res.truncate(self.k);
-    Ok((next_state,res))
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
+    match inp {
+      None => Ok((*state,None)),
+      Some(inp) => {
+        // Might be expensive to clone the Vector if it's big.
+        let next_state = self.get_next_state(state,inp)?;
+        let mut res: Self::OutputType = inp.to_vec();
+        res.truncate(self.k);
+        Ok((next_state,Some(res)))
+      }
+    }
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.k,inp)?;
-    Ok(outp.1)
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.k,Some(inp))?;
+    match outp.1 {
+      None           => Ok(vec![]),
+      Some(next_val) => Ok(next_val)
+    }
   }
   fn verbose_state(&self) -> String {
      format!("Selector k: ({:?})",self.k)
@@ -61,16 +69,16 @@ mod tests {
   #[test]
   fn it_gets_next_values_good() {
     let test1 = Selector::new(0usize);
-    assert_eq!(test1.get_next_values(&0usize,&vec!['a','b']),Ok((0usize,vec![])));
+    assert_eq!(test1.get_next_values(&0usize,Some(&vec!['a','b'])),Ok((0usize,Some(vec![]))));
     let test2 = Selector::new(1usize);
-    assert_eq!(test2.get_next_values(&1usize,&vec!['a','b']),Ok((1usize,vec!['a'])));
+    assert_eq!(test2.get_next_values(&1usize,Some(&vec!['a','b'])),Ok((1usize,Some(vec!['a']))));
     let test3 = Selector::new(2usize);
-    assert_eq!(test3.get_next_values(&1usize,&vec!['a','b']),Ok((2usize,vec!['a','b'])));
+    assert_eq!(test3.get_next_values(&1usize,Some(&vec!['a','b'])),Ok((2usize,Some(vec!['a','b']))));
   }
   #[test]
   fn it_gets_next_values_bad_range() {
     let test = Selector::new(100usize);
-    assert_eq!(test.get_next_values(&3usize,&vec!['a','b']),Err("Requested index out of bounds".to_string()));
+    assert_eq!(test.get_next_values(&3usize,Some(&vec!['a','b'])),Err("Requested index out of bounds".to_string()));
   }
   #[test]
   fn it_steps() {

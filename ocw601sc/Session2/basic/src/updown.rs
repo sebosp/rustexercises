@@ -35,14 +35,24 @@ impl super::StateMachine for UpDown {
       Err("Invalid char for UpDown".to_string())
     }
   }
-  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Self::OutputType),String> {
-    let next_state = self.get_next_state(state,inp)?;
-    Ok((next_state,next_state))
+  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
+    match inp {
+      None => Ok((*state,None)),
+      Some(inp) => {
+        let next_state = self.get_next_state(state,inp)?;
+        Ok((next_state,Some(next_state)))
+      }
+    }
   }
   fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Self::OutputType) = self.get_next_values(&self.state,inp)?;
-    self.state = outp.0;
-    Ok(outp.1)
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+    match outp.1 {
+      None           => Ok(0i64),
+      Some(next_val) => {
+        self.state = outp.0;
+        Ok(next_val)
+      }
+    }
   }
   fn verbose_state(&self) -> String {
      format!("Start state: {}",self.state)
@@ -58,8 +68,8 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = UpDown::new(0i64);
-    assert_eq!(test.get_next_values(&0i64,&'d'),Ok((-1i64,-1i64)));
-    assert_eq!(test.get_next_values(&0i64,&'u'),Ok((1i64,1i64)));
+    assert_eq!(test.get_next_values(&0i64,Some(&'d')),Ok((-1i64,Some(-1i64))));
+    assert_eq!(test.get_next_values(&0i64,Some(&'u')),Ok((1i64,Some(1i64))));
   }
   #[test]
   fn it_steps() {
