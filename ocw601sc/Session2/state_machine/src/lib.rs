@@ -21,6 +21,7 @@ pub mod increment;
 pub mod cascade;
 pub mod parallel;
 pub mod fork;
+pub mod feedback;
 pub trait StateMachine {
   type StateType;
   type InputType;
