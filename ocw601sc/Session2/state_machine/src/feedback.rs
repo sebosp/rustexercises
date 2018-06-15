@@ -3,10 +3,12 @@
 //use cascade::Cascade;
 //use increment::Increment;
 //use delay::Delay;
+use std::fmt::Display;
 pub struct Feedback<SM>
   where SM: super::StateMachine,
         SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
         <SM>::StateType: Clone + Copy,
+        <SM>::OutputType: Display,
 {
   pub sm: SM,
   pub state: <SM>::StateType
@@ -15,6 +17,7 @@ impl<SM> super::StateMachine for Feedback<SM>
   where SM: super::StateMachine,
         SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
         <SM>::StateType: Clone + Copy,
+        <SM>::OutputType: Display,
 {
   /// `StateType`(S) = numbers
   type StateType = <SM>::StateType;
@@ -39,26 +42,28 @@ impl<SM> super::StateMachine for Feedback<SM>
     where SM: super::StateMachine,
           SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
   {
+    println!("Feedback::get_next_values");
     match inp {
-      None => Ok((*state,None)),
-      Some(_) => {
+      Some(_) => Err("The input of a Feedback StateMachine must be None".to_string()),
+      None => {
+        println!("Feedback(None) state: {}",self.verbose_state());
         let sm_next_value = self.sm.get_next_values(&state,None)?;
         match sm_next_value.1 {
-          None               => Err("FIXME:XXX:TODO".to_string()),
+          None => Err("The output of the Constituent Machine 1st run must not be None".to_string()),
           Some(sm_next_val) => {
+            println!("Feedback(Some) state: {}",self.verbose_state());
             let sm_feedback = self.sm.get_next_values(&state,Some(&sm_next_val))?;
             match sm_feedback.1 {
-              None               => Err("FIXME:XXX:TODO".to_string()),
-              Some(_) =>
-                Ok((sm_feedback.0,Some(sm_next_val)))
+              None    => Err("The output of the Constituent Machine 2nd run must not be None".to_string()),
+              Some(sm_feedback_val) => Ok((sm_feedback.0,Some(sm_feedback_val)))
             }
           }
         }
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+  fn step(&mut self, _: &Self::InputType) -> Result<Self::OutputType, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,None)?;
     match outp.1 {
       None           => Err("FIXME:XXX:TODO".to_string()),
       Some(next_val) => {
@@ -70,7 +75,8 @@ impl<SM> super::StateMachine for Feedback<SM>
   fn verbose_state(&self) -> String {
     format!("Start state: (SM:{})",self.sm.verbose_state())
   }
-  fn verbose_step(&self, _: &Self::InputType, _: &Self::OutputType) -> String {
+  fn verbose_step(&self, inp: &Self::InputType, outp: &Self::OutputType) -> String {
+    println!("Feedback In: {} Out: {}", inp, outp);
     format!("Step: (SM:{})",self.sm.verbose_state())
   }
 }
@@ -92,12 +98,12 @@ impl<SM> super::StateMachine for Feedback<SM>
 mod tests {
   use super::*;
   use super::super::*;
-  use accumulator::Accumulator;
-  use average2::Average2;
+/*  use accumulator::Accumulator;
+  use average2::Average2;*/
   use delay::Delay;
   use increment::Increment;
   use cascade::Cascade;
-  #[test]
+/*  #[test]
   fn it_cascades_accumulators_next_values() {
     let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
     assert_eq!(test.get_next_values(&(0i8,0i8),Some(&0i8)),Ok(((0i8,0i8),Some(0i8))));
@@ -133,10 +139,12 @@ mod tests {
     assert_eq!(test.state,(3i64,101i64));
     assert_eq!(test.step(&2i64),Ok(104i64));
     assert_eq!(test.state,(2i64,104i64));
-  }
+  }*/
   #[test]
   fn it_feedbacks_cascades_increment_to_delay_next_val() {
     let test: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((2i64,3i64));
-    assert_eq!(test.get_next_values(&(0i64,0i64),Some(&0i64)),Ok(((0i64,0i64),Some(0i64))));
+    assert_eq!(test.get_next_values(&(2i64,3i64),None),Ok(((2i64,5i64),Some(3i64))));
+    assert_eq!(test.get_next_values(&(2i64,5i64),None),Ok(((2i64,7i64),Some(5i64))));
+    assert_eq!(test.get_next_values(&(2i64,7i64),None),Ok(((2i64,9i64),Some(7i64))));
   }
 }

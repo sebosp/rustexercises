@@ -160,10 +160,8 @@ mod tests {
   }
   #[test]
   fn test_increment() {
-    let mut test = Increment::new(0);
-    assert_eq!(test.step(&1i64),Ok(1i64));
-    let mut test_transduce = Accumulator::new(0);
-    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![1i64, 2i64, 3i64, 4i64, 10i64],true, true);
-    assert_eq!(transduce_res, vec![Ok(1i64), Ok(3i64), Ok(6i64), Ok(10i64), Ok(20i64)]);
+    let mut test_transduce = Increment::new(3i64);
+    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce(vec![1i64,2i64,3i64,4i64,5i64],true, true);
+    assert_eq!(transduce_res, vec![Ok(4i64), Ok(5i64), Ok(6i64), Ok(7i64), Ok(8i64)]);
   }
 }

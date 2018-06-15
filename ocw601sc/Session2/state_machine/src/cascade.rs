@@ -47,21 +47,15 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>
   where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
   {
-    match inp {
-      None => Ok((*state,None)),
-      Some(inp) => {
-        let sm1_next_value = self.sm1.get_next_values(&state.0,Some(inp))?;
-        match sm1_next_value.1 {
-          None               => Err("FIXME:XXX:TODO".to_string()),
-          Some(sm1_next_val) => {
-            let sm2_next_value = self.sm2.get_next_values(&state.1,Some(&sm1_next_val))?;
-            match sm2_next_value.1 {
-              None               => Err("FIXME:XXX:TODO".to_string()),
-              Some(sm2_next_val) =>
-                Ok(((sm1_next_value.0,sm2_next_value.0),Some(sm2_next_val)))
-            }
-          }
-        }
+    let sm1_next_value = self.sm1.get_next_values(&state.0,inp)?;
+    match sm1_next_value.1 {
+      None               => {
+        let sm2_next_value = self.sm2.get_next_values(&state.1,None)?;
+        Ok(((sm1_next_value.0,sm2_next_value.0),sm2_next_value.1))
+      }
+      Some(sm1_next_val) => {
+        let sm2_next_value = self.sm2.get_next_values(&state.1,Some(&sm1_next_val))?;
+        Ok(((sm1_next_value.0,sm2_next_value.0),sm2_next_value.1))
       }
     }
   }
@@ -125,16 +119,29 @@ mod tests {
   fn it_cascades_delay_to_increment() {
     let mut test: Cascade<Delay<i64>,Increment<i64>> = Cascade::new((100i64,1i64));
     assert_eq!(test.step(&3i64),Ok(101i64));
-    assert_eq!(test.state,(3i64,101i64));
-    assert_eq!(test.step(&2i64),Ok(104i64));
-    assert_eq!(test.state,(2i64,104i64));
+    assert_eq!(test.state,(3i64,1i64));
+    assert_eq!(test.step(&2i64),Ok(4i64));
+    assert_eq!(test.state,(2i64,1i64));
   }
   #[test]
   fn it_cascades_increment_to_delay() {
     let mut test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((1i64,100i64));
     assert_eq!(test.step(&3i64),Ok(100i64));
-    assert_eq!(test.state,(4i64,4i64));
+    assert_eq!(test.state,(1i64,4i64));
     assert_eq!(test.step(&2i64),Ok(4i64));
-    assert_eq!(test.state,(6i64,6i64));
+    assert_eq!(test.state,(1i64,3i64));
+  }
+  #[test]
+  fn it_cascades_increment_to_delay_next_values_none() {
+    let test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((2i64,3i64));
+    assert_eq!(test.get_next_values(&(2i64,3i64),None),Ok(((2i64,3i64),Some(3i64))));
+    assert_eq!(test.get_next_values(&(2i64,3i64),Some(&3i64)),Ok(((2i64,5i64),Some(3i64))));
+    assert_eq!(test.get_next_values(&(2i64,5i64),Some(&3i64)),Ok(((2i64,5i64),Some(5i64))));
+    assert_eq!(test.get_next_values(&(2i64,5i64),Some(&5i64)),Ok(((2i64,7i64),Some(5i64))));
+    assert_eq!(test.get_next_values(&(2i64,7i64),Some(&5i64)),Ok(((2i64,7i64),Some(7i64))));
+    assert_eq!(test.get_next_values(&(2i64,7i64),Some(&7i64)),Ok(((2i64,9i64),Some(7i64))));
+    assert_eq!(test.get_next_values(&(2i64,9i64),Some(&7i64)),Ok(((2i64,9i64),Some(9i64))));
+    assert_eq!(test.get_next_values(&(2i64,9i64),Some(&9i64)),Ok(((2i64,11i64),Some(9i64))));
+    assert_eq!(test.get_next_values(&(2i64,11i64),Some(&9i64)),Ok(((2i64,11i64),Some(11i64))));
   }
 }

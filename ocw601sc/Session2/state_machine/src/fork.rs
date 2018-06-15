@@ -112,8 +112,8 @@ mod tests {
   fn it_steps_increments() {
     let mut test: Fork<Increment<i64>,Increment<i64>> = Fork::new((100i64,1i64));
     assert_eq!(test.step(&3i64),Ok((103i64,4i64)));
-    assert_eq!(test.state,(103i64,4i64));
-    assert_eq!(test.step(&2i64),Ok((105i64,6i64)));
-    assert_eq!(test.state,(105i64,6i64));
+    assert_eq!(test.state,(100i64,1i64));
+    assert_eq!(test.step(&2i64),Ok((102i64,3i64)));
+    assert_eq!(test.state,(100i64,1i64));
   }
 }
