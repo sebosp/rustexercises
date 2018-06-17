@@ -48,21 +48,19 @@ where T: Num + Display + Clone + Copy + FromPrimitive + ToPrimitive,
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(0f64),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.state)
+    format!("Average2::Start state: {}",self.state)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Average2::In: {} Out: None Next State: {}", inp, self.state),
+      Some(outp) => format!("Average2::In: {} Out: {} Next State: {}", inp, outp, self.state)
+    }
   }
 }
 #[cfg(test)]
@@ -74,27 +72,27 @@ mod tests {
   #[test]
   fn it_gets_next_values_i8() {
     let test = Average2::new(0);
-    assert_eq!(test.get_next_values(&0i8,Some(&0i8)),Ok((0i8,Some(0f64))));
-    assert_eq!(test.get_next_values(&0i8,Some(&1i8)),Ok((1i8,Some(0.5f64))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&0i8),(0i8,0f64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&1i8),(1i8,0.5f64));
   }
   #[test]
   fn it_steps_i8() {
     let mut test = Average2::new(0);
-    assert_eq!(test.step(&1i8),Ok(0.5f64));
-    assert_eq!(test.step(&1i8),Ok(1f64));
+    assert_eq!(test.step_unwrap(&1i8),0.5f64);
+    assert_eq!(test.step_unwrap(&1i8),1f64);
     assert_eq!(test.state,1i8);
   }
   #[test]
   #[should_panic(expected = "attempt to add with overflow")]
   fn it_gets_next_value_beyond_maxi64() {
     // XXX: overflow should be handled and return Err.
-    let _test = Average2::new(0i64).get_next_values(&(i64::MAX - 1i64),Some(&(i64::MAX - 1i64)));
+    let _test = Average2::new(0i64).get_next_values_wrap_unwrap(&(i64::MAX - 1i64),&(i64::MAX - 1i64));
   }
   #[test]
   fn it_gets_next_values_f64() {
     let test = Average2::new(0f64);
-    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
-    assert_eq!(test.get_next_values(&0f64,Some(&1f64)),Ok((1f64,Some(0.5f64))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&0f64),(0f64,0f64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&1f64),(1f64,0.5f64));
   }
   #[test]
   fn it_gets_next_values_infinity() {
@@ -107,5 +105,10 @@ mod tests {
     assert_eq!(test.get_next_state(&0i8,&0i8),Ok(0i8));
     assert_eq!(test.get_next_state(&0i8,&1i8),Ok(1i8));
     assert_eq!(test.get_next_state(&0i8,&2i8),Ok(2i8));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = Average2::new(0);
+    assert_eq!(test.is_composite(),false);
   }
 }

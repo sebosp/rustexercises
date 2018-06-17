@@ -15,7 +15,7 @@ impl super::StateMachine for ABC {
   /// Returns an ABC struct. `initial_value`(_s0_) is usually 0.
   fn new(initial_value: Self::StateType) -> Self {
     ABC {
-      state: initial_value
+      state: initial_value,
     }
   }
   fn start(&mut self){
@@ -49,21 +49,19 @@ impl super::StateMachine for ABC {
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(false),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.state)
+    format!("ABC::Start state: {}",self.state)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("ABC::In: {} Out: None Next State: {}", inp, self.state),
+      Some(outp) => format!("ABC::In: {} Out: {} Next State: {}", inp, outp, self.state),
+    }
   }
 }
 #[cfg(test)]
@@ -93,17 +91,17 @@ mod tests {
   #[test]
   fn it_steps_good_seq() {
     let mut test = ABC::new(0);
-    assert_eq!(test.step(&'a'),Ok(true));
+    assert_eq!(test.step_unwrap(&'a'),true);
     assert_eq!(test.state,1);
   }
   #[test]
   fn it_steps_bad_seq() {
     let mut test = ABC::new(0);
-    assert_eq!(test.step(&'a'),Ok(true));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.step_unwrap(&'a'),true);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
     assert_eq!(test.state,3);
   }
   #[test]
@@ -115,5 +113,10 @@ mod tests {
     assert_eq!(test.get_next_state(&0i8,&'a'),Ok(0i8));
     assert_eq!(test.get_next_state(&1i8,&'b'),Ok(0i8));
     assert_eq!(test.get_next_state(&2i8,&'c'),Ok(0i8));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = ABC::new(0);
+    assert_eq!(test.is_composite(),false);
   }
 }
