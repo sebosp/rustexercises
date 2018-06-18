@@ -97,22 +97,25 @@ impl super::StateMachine for SimpleParkingGate {
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     //let temp_inp = inp;
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
     match outp.1 {
-      None           => Ok("undefined".to_string()),
+      None           => Ok(Some("undefined".to_string())),
       Some(next_val) => {
         self.state = outp.0;
-        Ok(next_val)
+        Ok(Some(next_val))
       }
     }
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.verbose_output(self.state))
+    format!("SimpleParkingGate::Start state: {}",self.verbose_output(self.state))
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", self.verbose_input(inp), outp, self.verbose_state())
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("SimpleParkingGate::In: {} Out: None Next State: {}", self.verbose_input(inp), self.verbose_state()),
+      Some(outp) => format!("SimpleParkingGate::In: {} Out: {} Next State: {}", self.verbose_input(inp), outp, self.verbose_state())
+    }
   }
 }
 impl SimpleParkingGate {
@@ -163,24 +166,24 @@ mod tests {
     let test = SimpleParkingGate::new(GateState::Waiting);
     // GatePosition::Bottom
     assert_eq!(
-      test.get_next_values(
+      test.get_next_values_wrap_unwrap(
         &GateState::Waiting,
-        Some(&GateSensors {
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
-        })
-      ),Ok((GateState::Waiting,Some("nop".to_string())))
+        }
+      ),(GateState::Waiting,"nop".to_string())
     );
     assert_eq!(
-      test.get_next_values(
+      test.get_next_values_wrap_unwrap(
         &GateState::Raising,
-        Some(&GateSensors {
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
-        })
-      ),Ok((GateState::Raising,Some("raise".to_string())))
+        }
+      ),(GateState::Raising,"raise".to_string())
     );
     assert_eq!(
       test.get_next_values(
@@ -193,14 +196,19 @@ mod tests {
       ),Err("GatePosition and GateState sensors have invalid data".to_string())
     );
     assert_eq!(
-      test.get_next_values(
+      test.get_next_values_wrap_unwrap(
         &GateState::Lowering,
-        Some(&GateSensors {
+        &GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
-        })
-      ),Ok((GateState::Waiting,Some("nop".to_string())))
+        }
+      ),(GateState::Waiting,"nop".to_string())
     );
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = SimpleParkingGate::new(GateState::Waiting);
+    assert_eq!(test.is_composite(),false);
   }
 }

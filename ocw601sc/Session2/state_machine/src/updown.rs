@@ -44,21 +44,19 @@ impl super::StateMachine for UpDown {
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(0i64),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.state)
+    format!("UpDown::Start state: {}",self.state)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("UpDown::In: {} Out: None Next State: {}", inp, self.state),
+      Some(outp) => format!("UpDown::In: {} Out: {} Next State: {}", inp, outp, self.state)
+    }
   }
 }
 #[cfg(test)]
@@ -68,13 +66,13 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = UpDown::new(0i64);
-    assert_eq!(test.get_next_values(&0i64,Some(&'d')),Ok((-1i64,Some(-1i64))));
-    assert_eq!(test.get_next_values(&0i64,Some(&'u')),Ok((1i64,Some(1i64))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i64,&'d'),(-1i64,-1i64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i64,&'u'),(1i64,1i64));
   }
   #[test]
   fn it_steps() {
     let mut test = UpDown::new(0i64);
-    assert_eq!(test.step(&'d'),Ok(-1i64));
+    assert_eq!(test.step_unwrap(&'d'),-1i64);
     assert_eq!(test.state,(-1i64));
   }
   #[test]
@@ -83,5 +81,10 @@ mod tests {
     assert_eq!(test.get_next_state(&0i64,&'d'),Ok(-1i64));
     assert_eq!(test.get_next_state(&-1i64,&'u'),Ok(0i64));
     assert_eq!(test.get_next_state(&0i64,&'u'),Ok(1i64));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = UpDown::new(0i64);
+    assert_eq!(test.is_composite(),false);
   }
 }

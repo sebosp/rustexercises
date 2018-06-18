@@ -20,7 +20,7 @@ where T: Num + Display + Clone + Copy
   /// `initial_value`(_s0_) is usually 0;
   fn new(initial_value: Self::StateType) -> Self {
     Increment {
-      incr: initial_value
+      incr: initial_value,
     }
   }
   fn start(&mut self) {}
@@ -36,18 +36,18 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.incr,Some(inp))?;
-    match outp.1 {
-      None           => Ok(T::zero()),
-      Some(next_val) => Ok(next_val),
-    }
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.incr)
+    format!("Increment::Start state: {}",self.incr)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.incr)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Increment::In: {} Out: None Next State: {}", inp, self.incr),
+      Some(outp) => format!("Increment::In: {} Out: {} Next State: {}", inp, outp, self.incr)
+    }
   }
 }
 #[cfg(test)]
@@ -57,9 +57,9 @@ mod tests {
   #[test]
   fn it_gets_next_values_some() {
     let test = Increment::new(0f64);
-    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
-    assert_eq!(test.get_next_values(&0f64,Some(&7f64)),Ok((0f64,Some(7f64))));
-    assert_eq!(test.get_next_values(&7f64,Some(&7f64)),Ok((7f64,Some(14f64))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&0f64),(0f64,0f64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&7f64),(0f64,7f64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&7f64,&7f64),(7f64,14f64));
   }
   #[test]
   fn it_gets_next_values_none() {
@@ -69,8 +69,8 @@ mod tests {
   #[test]
   fn it_steps() {
     let mut test = Increment::new(1f64);
-    assert_eq!(test.step(&1f64),Ok(2f64));
-    assert_eq!(test.step(&1f64),Ok(2f64));
+    assert_eq!(test.step_unwrap(&1f64),2f64);
+    assert_eq!(test.step_unwrap(&1f64),2f64);
     assert_eq!(test.incr,1f64);
   }
   #[test]
@@ -78,5 +78,10 @@ mod tests {
     let test = Increment::new(0i64);
     assert_eq!(test.get_next_state(&1i64,&1i64),Ok(1i64));
     assert_eq!(test.get_next_state(&5i64,&7i64),Ok(5i64));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = Increment::new(0i64);
+    assert_eq!(test.is_composite(),false);
   }
 }

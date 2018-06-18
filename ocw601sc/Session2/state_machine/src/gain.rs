@@ -20,7 +20,7 @@ where T: Num + Display + Clone + Copy
   /// `K`(_s0_) = does not exist, K is defined at instantiation time.
   fn new(initial_value: Self::StateType) -> Self {
     Gain {
-      k: initial_value
+      k: initial_value,
     }
   }
   fn start(&mut self){}
@@ -36,18 +36,18 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&T::zero(),Some(inp))?;
-    match outp.1 {
-      None => Ok(T::zero()),
-      Some(next_val) => Ok(next_val)
-    }
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Gain K: {}",self.k)
+    format!("Gain K: {}",self.k)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.k)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Gain::In: {} Out: None Next State: {}", inp, self.k),
+      Some(outp) => format!("Gain::In: {} Out: {} Next State: {}", inp, outp, self.k)
+    }
   }
 }
 #[cfg(test)]
@@ -57,14 +57,14 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = Gain::new(0f64);
-    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
-    assert_eq!(test.get_next_values(&0f64,Some(&0f64)),Ok((0f64,Some(0f64))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&0f64),(0f64,0f64));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0f64,&0f64),(0f64,0f64));
   }
   #[test]
   fn it_steps() {
     let mut test = Gain::new(1f64);
-    assert_eq!(test.step(&1f64),Ok(1f64));
-    assert_eq!(test.step(&1f64),Ok(1f64));
+    assert_eq!(test.step_unwrap(&1f64),1f64);
+    assert_eq!(test.step_unwrap(&1f64),1f64);
     assert_eq!(test.k,1f64);
   }
   #[test]
@@ -74,5 +74,10 @@ mod tests {
     let test2 = Gain::new(5f64);
     assert_eq!(test2.get_next_state(&1f64,&1f64),Ok(5f64));
     assert_eq!(test2.get_next_state(&1f64,&2f64),Ok(10f64));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = Gain::new(0f64);
+    assert_eq!(test.is_composite(),false);
   }
 }

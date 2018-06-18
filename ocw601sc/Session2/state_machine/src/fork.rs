@@ -49,7 +49,7 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
       Some(inp) => {
         let sm1_next_values = self.sm1.get_next_values(&state.0,Some(inp))?;
         match sm1_next_values.1 {
-          None               => Err("FIXME:XXX:TODO".to_string()),
+          None               => Err("Fork::FIXME:XXX:TODO".to_string()),
           Some(sm1_next_val) => {
             let sm2_next_values = self.sm2.get_next_values(&state.1,Some(inp))?;
             match sm2_next_values.1 {
@@ -63,21 +63,19 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Err("FIXME:XXX:TODO".to_string()),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+    format!("Fork::Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
-  fn verbose_step(&self, _: &Self::InputType, _: &Self::OutputType) -> String {
-    format!("Step: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_step(&self, _: &Self::InputType, _: Option<&Self::OutputType>) -> String {
+    format!("Fork::Step: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  }
+  fn is_composite(&self) -> bool {
+    true
   }
 }
 #[cfg(test)]
@@ -89,9 +87,9 @@ mod tests {
   #[test]
   fn it_get_next_values_accumulators() {
     let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
-    assert_eq!(test.get_next_values(&(0i8,0i8),Some(&0i8)),Ok(((0i8,0i8),Some((0i8,0i8)))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,12i8),Some((10i8,12i8)))));
-    assert_eq!(test.get_next_values(&(3i8,5i8),Some(&7i8)),Ok(((10i8,12i8),Some((10i8,12i8)))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&0i8),((0i8,0i8),(0i8,0i8)));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,12i8),(10i8,12i8)));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,12i8),(10i8,12i8)));
   }
   #[test]
   fn it_get_next_state_accumulators() {
@@ -103,17 +101,22 @@ mod tests {
   #[test]
   fn it_steps_accumulators() {
     let mut test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
-    assert_eq!(test.step(&3i8),Ok((4i8,5i8)));
+    assert_eq!(test.step_unwrap(&3i8),(4i8,5i8));
     assert_eq!(test.state,(4i8,5i8));
-    assert_eq!(test.step(&5i8),Ok((9i8,10i8)));
+    assert_eq!(test.step_unwrap(&5i8),(9i8,10i8));
     assert_eq!(test.state,(9i8,10i8));
   }
   #[test]
   fn it_steps_increments() {
     let mut test: Fork<Increment<i64>,Increment<i64>> = Fork::new((100i64,1i64));
-    assert_eq!(test.step(&3i64),Ok((103i64,4i64)));
+    assert_eq!(test.step_unwrap(&3i64),(103i64,4i64));
     assert_eq!(test.state,(100i64,1i64));
-    assert_eq!(test.step(&2i64),Ok((102i64,3i64)));
+    assert_eq!(test.step_unwrap(&2i64),(102i64,3i64));
     assert_eq!(test.state,(100i64,1i64));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    assert_eq!(test.is_composite(),true);
   }
 }

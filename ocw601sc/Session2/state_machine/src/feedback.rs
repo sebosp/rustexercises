@@ -11,7 +11,7 @@ pub struct Feedback<SM>
         <SM>::OutputType: Display,
 {
   pub sm: SM,
-  pub state: <SM>::StateType
+  pub state: <SM>::StateType,
 }
 impl<SM> super::StateMachine for Feedback<SM> 
   where SM: super::StateMachine,
@@ -49,7 +49,23 @@ impl<SM> super::StateMachine for Feedback<SM>
         println!("Feedback(None) state: {}",self.verbose_state());
         let sm_next_value = self.sm.get_next_values(&state,None)?;
         match sm_next_value.1 {
-          None => Err("The output of the Constituent Machine 1st run must not be None".to_string()),
+          None => {
+            if self.sm.is_composite() {
+              println!("Feedback(None) state: {}",self.verbose_state());
+              let sm_feedback = self.sm.get_next_values(&state,None)?;
+              match sm_feedback.1 {
+                None    =>
+                  if self.sm.is_composite() {
+                    Ok((sm_feedback.0,None))
+                  } else {
+                    Err("The output of the Constituent Machine 2nd run must not be None".to_string())
+                  },
+                Some(sm_feedback_val) => Ok((sm_feedback.0,Some(sm_feedback_val)))
+              }
+            } else {
+              Err("The output of the Constituent Machine 1st run must not be None".to_string())
+            }
+          },
           Some(sm_next_val) => {
             println!("Feedback(Some) state: {}",self.verbose_state());
             let sm_feedback = self.sm.get_next_values(&state,Some(&sm_next_val))?;
@@ -62,23 +78,24 @@ impl<SM> super::StateMachine for Feedback<SM>
       }
     }
   }
-  fn step(&mut self, _: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, _: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,None)?;
-    match outp.1 {
-      None           => Err("FIXME:XXX:TODO".to_string()),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Start state: (SM:{})",self.sm.verbose_state())
+    format!("Feedback::Start state: (SM:{})",self.sm.verbose_state())
   }
-  fn verbose_step(&self, inp: &Self::InputType, outp: &Self::OutputType) -> String {
-    println!("Feedback In: {} Out: {}", inp, outp);
-    format!("Step: (SM:{})",self.sm.verbose_state())
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Feedback::In: {} Out: None Next State: {}", inp, self.sm.verbose_state()),
+      Some(outp) => format!("Feedback::In: {} Out: {} (SM: {})", inp, outp, self.sm.verbose_state())
+    }
   }
+  fn is_composite(&self) -> bool {
+    true
+  }
+
 }
 //impl<SM> Feedback<SM>
 //where SM: super::StateMachine,
@@ -146,5 +163,10 @@ mod tests {
     assert_eq!(test.get_next_values(&(2i64,3i64),None),Ok(((2i64,5i64),Some(3i64))));
     assert_eq!(test.get_next_values(&(2i64,5i64),None),Ok(((2i64,7i64),Some(5i64))));
     assert_eq!(test.get_next_values(&(2i64,7i64),None),Ok(((2i64,9i64),Some(7i64))));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((2i64,3i64));
+    assert_eq!(test.is_composite(),true);
   }
 }

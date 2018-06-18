@@ -24,7 +24,7 @@ where T: Num + Display + Clone + Copy
   /// `initial_value`(_s0_) is defined when initialized.
   fn new(initial_value: Self::StateType) -> Self {
     Delay {
-      state: initial_value
+      state: initial_value,
     }
   }
   fn start(&mut self){
@@ -42,21 +42,19 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
+  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(T::zero()), // get_next_values returns always a Some() in this case.
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
-    }
+    self.state = outp.0;
+    Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.state)
+    format!("Delay::Start state: {}",self.state)
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Delay::In: {} Out: None Next State: {}", inp, self.state),
+      Some(outp) => format!("Delay::In: {} Out: {} Next State: {}", inp, outp, self.state)
+    }
   }
 }
 #[cfg(test)]
@@ -66,9 +64,9 @@ mod tests {
   #[test]
   fn it_gets_next_values_some() {
     let test = Delay::new(0);
-    assert_eq!(test.get_next_values(&0i8,Some(&1i8)),Ok((1i8,Some(0i8))));
-    assert_eq!(test.get_next_values(&2i8,Some(&3i8)),Ok((3i8,Some(2i8))));
-    assert_eq!(test.get_next_values(&4i8,Some(&5i8)),Ok((5i8,Some(4i8))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&1i8),(1i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&2i8,&3i8),(3i8,2i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&4i8,&5i8),(5i8,4i8));
   }
   #[test]
   fn it_gets_next_values_none() {
@@ -78,7 +76,7 @@ mod tests {
   #[test]
   fn it_steps() {
     let mut test = Delay::new(0);
-    assert_eq!(test.step(&1i8),Ok(0i8));
+    assert_eq!(test.step_unwrap(&1i8),0i8);
     assert_eq!(test.state,1i8);
   }
   #[test]
@@ -86,5 +84,10 @@ mod tests {
     let test = Delay::new(0);
     assert_eq!(test.get_next_state(&0i8,&1i8),Ok(0i8));
     assert_eq!(test.get_next_state(&1i8,&0i8),Ok(1i8));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = Delay::new(0);
+    assert_eq!(test.is_composite(),false);
   }
 }
