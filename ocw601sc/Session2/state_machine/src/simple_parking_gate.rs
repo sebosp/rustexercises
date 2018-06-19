@@ -59,34 +59,44 @@ impl super::StateMachine for SimpleParkingGate {
     self.state = GateState::Waiting;
   }
   fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
-    let mut next_state = *state;
     match state {
       GateState::Waiting => {
         if inp.car_at_gate {
-          next_state = GateState::Raising;
-        } else if inp.position != GatePosition::Bottom {
-          return Err("GatePosition and GateState sensors have invalid data".to_string());
+          Ok(GateState::Raising)
+        } else {
+          if inp.position != GatePosition::Bottom {
+            Err("GatePosition and GateState sensors have invalid data".to_string())
+          } else {
+          Ok(GateState::Waiting)
+          }
         }
       },
       GateState::Raising => {
         if inp.position == GatePosition::Top {
-          next_state = GateState::Raised;
+          Ok(GateState::Raised)
+        } else {
+          Ok(GateState::Raising)
         }
       },
       GateState::Raised => {
         if inp.car_just_existed {
-          next_state = GateState::Lowering;
-        } else if inp.position != GatePosition::Top {
-          return Err("GatePosition and GateState sensors have invalid data".to_string());
+          Ok(GateState::Lowering)
+        } else {
+          if inp.position != GatePosition::Top {
+            Err("GatePosition and GateState sensors have invalid data".to_string())
+          } else {
+            Ok(GateState::Raised)
+          }
         }
       },
       GateState::Lowering => {
         if inp.position == GatePosition::Bottom {
-          next_state = GateState::Waiting;
+          Ok(GateState::Waiting)
+        } else {
+          Ok(GateState::Lowering)
         }
-      },
-    };
-    Ok(next_state)
+      }
+    }
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
@@ -101,7 +111,7 @@ impl super::StateMachine for SimpleParkingGate {
     //let temp_inp = inp;
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     match outp.1 {
-      None           => Ok(Some("undefined".to_string())),
+      None           => Ok(Some("nop".to_string())),
       Some(next_val) => {
         self.state = outp.0;
         Ok(Some(next_val))

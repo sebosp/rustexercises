@@ -81,16 +81,16 @@ pub trait StateMachine {
   /// A transducer is a process that takes as input a sequence of values which
   /// serve as inputs to the state machine, and returns as ouput the set of
   /// outputs of the machine for each input
-  fn transduce(&mut self, inp: Vec<Option<&Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
+  fn transduce(&mut self, inp: Vec<Option<Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
     let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
     if verbose {
       self.verbose_state();
     }
     for cur_inp in inp {
-      match self.step(cur_inp) {
+      match self.step(cur_inp.as_ref()) {
         Ok(cur_out) => {
           if verbose {
-            self.verbose_step(cur_inp,cur_out.as_ref());
+            self.verbose_step(cur_inp.as_ref(),cur_out.as_ref());
           }
           res.push(Ok(cur_out));
         },
@@ -105,9 +105,9 @@ pub trait StateMachine {
   /// this is an unsafe version, will panic on step result items being None
   fn transduce_wrap_unwrap(&mut self, inp: Vec<Self::InputType>, verbose: bool, _: bool) -> Vec<Result<Self::OutputType, String>> {
     let mut unwrapped_res: Vec<Result<Self::OutputType, String>> = Vec::new();
-    let mut wrapped_inp: Vec<Option<&Self::InputType>> = Vec::new();
+    let mut wrapped_inp: Vec<Option<Self::InputType>> = Vec::new();
     for cur_inp in inp {
-      wrapped_inp.push(Some(&cur_inp.to_borrow()));
+      wrapped_inp.push(Some(cur_inp));
     }
     let res_transduce = self.transduce(wrapped_inp, verbose, false);
     for cur_res in res_transduce {
