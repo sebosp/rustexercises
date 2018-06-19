@@ -12,7 +12,7 @@
 //! The machine has three possible outputs:
 //! - 'raise'
 //! - 'lower'
-//! - 'nop' (no operation)
+//! - 'nop' (no operation) -> None
 //!
 //! The machine has four possible states:
 //! - 'waiting'  (for a car to arrive at the gate),
@@ -93,13 +93,13 @@ impl super::StateMachine for SimpleParkingGate {
       None => Ok((*state,None)),
       Some(inp) => {
         let next_state = self.get_next_state(state,inp)?;
-        Ok((next_state,Some(self.verbose_output(next_state))))
+        Ok((next_state,self.output_state(next_state)))
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
     //let temp_inp = inp;
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     match outp.1 {
       None           => Ok(Some("undefined".to_string())),
       Some(next_val) => {
@@ -108,52 +108,46 @@ impl super::StateMachine for SimpleParkingGate {
       }
     }
   }
-  fn verbose_state(&self) -> String {
-    format!("SimpleParkingGate::Start state: {}",self.verbose_output(self.state))
+  fn state_machine_name(&self) -> String {
+    "SimpleParkingGate".to_string()
   }
-  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
     match outp {
-      None       => format!("SimpleParkingGate::In: {} Out: None Next State: {}", self.verbose_input(inp), self.verbose_state()),
-      Some(outp) => format!("SimpleParkingGate::In: {} Out: {} Next State: {}", self.verbose_input(inp), outp, self.verbose_state())
+      None       => format!("Out: {}","nop".to_string()),
+      Some(outp) => format!("Out: {}",outp)
     }
   }
-}
-impl SimpleParkingGate {
-  fn verbose_output(&self, state: GateState) -> String {
-    match state {
-      GateState::Raising => {
-        "raise".to_string()
-      },
-      GateState::Lowering => {
-        "lower".to_string()
-      },
-      _ => {
-        "nop".to_string()
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None      => "None".to_string(),
+      Some(inp) => {
+        let gate_position: String = match inp.position {
+          GatePosition::Top    => "Top".to_string(),
+          GatePosition::Middle => "Middle".to_string(),
+          GatePosition::Bottom => "Bottom".to_string(),
+        };
+        format!("In: (Car At Gate: {}, Car Just Exited: {}, Gate Position: {})",inp.car_at_gate,inp.car_just_existed,gate_position)
       }
     }
   }
-  fn verbose_input(&self, inp: &GateSensors) -> String {
+  fn verbose_state(&self) -> String {
     match self.state {
-      GateState::Waiting => {
-        format!("('bottom',{},{})",inp.car_at_gate,inp.car_just_existed)
-      },
-      GateState::Raising => {
-        if inp.position == GatePosition::Top {
-          format!("('top',{},{})",inp.car_at_gate,inp.car_just_existed)
-        } else {
-          format!("('middle',{},{})",inp.car_at_gate,inp.car_just_existed)
-        }
-      },
-      GateState::Raised => {
-        format!("('top',{},{})",inp.car_at_gate,inp.car_just_existed)
-      },
-      GateState::Lowering => {
-        if inp.position == GatePosition::Bottom {
-          format!("('bottom',{},{})",inp.car_at_gate,inp.car_just_existed)
-        } else {
-          format!("('middle',{},{})",inp.car_at_gate,inp.car_just_existed)
-        }
-      },
+      GateState::Waiting  => "State: Waiting".to_string(),
+      GateState::Raising  => "State: Raising".to_string(),
+      GateState::Raised   => "State: Raised".to_string(),
+      GateState::Lowering => "State: Lowering".to_string(),
+    }
+  }
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
+    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
+  }
+}
+impl SimpleParkingGate {
+  fn output_state(&self, state: GateState) -> Option<String> {
+    match state {
+      GateState::Raising  => Some("raise".to_string()),
+      GateState::Lowering => Some("lower".to_string()),
+      _                   => None,
     }
   }
 }
@@ -166,14 +160,14 @@ mod tests {
     let test = SimpleParkingGate::new(GateState::Waiting);
     // GatePosition::Bottom
     assert_eq!(
-      test.get_next_values_wrap_unwrap(
+      test.get_next_values( // Cannot be wrapped because of None
         &GateState::Waiting,
-        &GateSensors {
+        Some(&GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
-        }
-      ),(GateState::Waiting,"nop".to_string())
+        })
+      ),Ok((GateState::Waiting,None))
     );
     assert_eq!(
       test.get_next_values_wrap_unwrap(
@@ -186,7 +180,7 @@ mod tests {
       ),(GateState::Raising,"raise".to_string())
     );
     assert_eq!(
-      test.get_next_values(
+      test.get_next_values( // Cannot be wrapped because of Err()
         &GateState::Raised,
         Some(&GateSensors {
           car_at_gate: false,
@@ -196,14 +190,14 @@ mod tests {
       ),Err("GatePosition and GateState sensors have invalid data".to_string())
     );
     assert_eq!(
-      test.get_next_values_wrap_unwrap(
+      test.get_next_values( // Cannot be wrapped because of None
         &GateState::Lowering,
-        &GateSensors {
+        Some(&GateSensors {
           car_at_gate: false,
           car_just_existed: false,
           position: GatePosition::Bottom
-        }
-      ),(GateState::Waiting,"nop".to_string())
+        })
+      ),Ok((GateState::Waiting,None))
     );
   }
   #[test]

@@ -2,14 +2,15 @@
 //! A very simple machine who's input is two numbers, it returns the sum.
 extern crate num_traits;
 use num_traits::*;
+use std::fmt::Display;
 // There is no reason for a struct to exist in this StateMachine.
 pub struct Adder<T>
-where T: Num + Clone + Copy,
+where T: Num + Clone + Copy + Display,
 {
   pub state: T,
 }
 impl<T> super::StateMachine for Adder<T>
-where T: Num + Clone + Copy,
+where T: Num + Clone + Copy + Display,
 {
   /// `StateType`(S) = numbers
   type StateType = T;
@@ -39,16 +40,30 @@ where T: Num + Clone + Copy,
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Adder::No Start state")
+    format!("No Start state")
   }
-  fn verbose_step(&self, _: &Self::InputType, _: Option<&Self::OutputType>) -> String {
-    //format!("In: ({},{}) Out: {} Next State: {}", inp.0, inp.1, outp, self.state) # XXX: FIXME
-    format!("Adder::In: XXX Out: XXX Next State: XXX")
+  fn state_machine_name(&self) -> String {
+    "Adder".to_string()
+  }
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None       => format!("In: None"),
+      Some(inp)  => format!("In: ({},{})", inp.0, inp.1),
+    }
+  }
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Out: None"),
+      Some(outp) => format!("Out: {}", outp),
+    }
+  }
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
+    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
   }
 }
 #[cfg(test)]

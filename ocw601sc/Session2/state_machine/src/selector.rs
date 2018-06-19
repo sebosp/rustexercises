@@ -4,7 +4,7 @@
 //! input that is a stream of lists or tuples of several values (or structures
 //! of values) and generates the stream made up only of the kth elements of
 //! the input values. 
-use std::fmt::Debug;
+use std::fmt::Debug; // XXX: Could this turn into a Display for usize?
 #[derive(Debug)]
 pub struct Selector<T>
 where T: Debug + Clone + Copy
@@ -48,18 +48,30 @@ where T: Debug + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.k,Some(inp))?;
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.k,inp)?;
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Selector k: ({:?})",self.k)
+    format!("K: ({:?})",self.k)
   }
-  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
     match outp {
-      None       => format!("Selector::In: {:?} Out: None", inp),
-      Some(outp) => format!("Selector::In: {:?} Out: {:?}", inp, outp)
+      None       => format!("In: None"),
+      Some(outp) => format!("In: {:?}", outp),
     }
+  }
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None      => format!("In: None"),
+      Some(inp) => format!("In: {:?}", inp),
+    }
+  }
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
+    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
+  }
+  fn state_machine_name(&self) -> String {
+    "Selector".to_string()
   }
 }
 #[cfg(test)]

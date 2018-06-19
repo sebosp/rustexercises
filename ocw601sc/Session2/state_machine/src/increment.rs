@@ -36,18 +36,30 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.incr,Some(inp))?;
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.incr,inp)?;
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Increment::Start state: {}",self.incr)
+    format!("State: {}",self.incr)
   }
-  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String {
-    match outp {
-      None       => format!("Increment::In: {} Out: None Next State: {}", inp, self.incr),
-      Some(outp) => format!("Increment::In: {} Out: {} Next State: {}", inp, outp, self.incr)
+  fn state_machine_name(&self) -> String {
+    "Increment".to_string()
+  }
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None       => format!("In: None"),
+      Some(inp)  => format!("In: {}", inp),
     }
+  }
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Out: None"),
+      Some(outp) => format!("Out: {}", outp),
+    }
+  }
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
+    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
   }
 }
 #[cfg(test)]

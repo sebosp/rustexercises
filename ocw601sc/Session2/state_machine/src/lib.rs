@@ -50,7 +50,7 @@ pub trait StateMachine {
   /// return them. We do not promise anything about how many times this method
   /// will be called and in what circumstances.
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>;
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String>;
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String>;
   /// Helper function that wraps the input in a Some() and unwraps the Result
   /// Panics on None
   fn get_next_values_wrap_unwrap(&self, state: &Self::StateType, inp: &Self::InputType) -> (Self::StateType,Self::OutputType) {
@@ -67,7 +67,7 @@ pub trait StateMachine {
   }
   /// Helper function that unwraps the Result. Panics on Err/None
   fn step_unwrap(&mut self, inp: &Self::InputType) -> Self::OutputType {
-    let res = self.step(inp);
+    let res = self.step(Some(inp));
     match res {
       Err(x) => panic!("step_unwrap got Err({})",x),
       Ok(opt) => {
@@ -78,21 +78,19 @@ pub trait StateMachine {
       }
     }
   }
-  fn verbose_state(&self) -> String;
-  fn verbose_step(&self, inp: &Self::InputType, outp: Option<&Self::OutputType>) -> String;
   /// A transducer is a process that takes as input a sequence of values which
   /// serve as inputs to the state machine, and returns as ouput the set of
   /// outputs of the machine for each input
-  fn transduce(&mut self, inp: Vec<Self::InputType>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
+  fn transduce(&mut self, inp: Vec<Option<&Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
     let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
     if verbose {
       self.verbose_state();
     }
     for cur_inp in inp {
-      match self.step(&cur_inp) {
+      match self.step(cur_inp) {
         Ok(cur_out) => {
           if verbose {
-            self.verbose_step(&cur_inp,cur_out.as_ref());
+            self.verbose_step(cur_inp,cur_out.as_ref());
           }
           res.push(Ok(cur_out));
         },
@@ -104,26 +102,36 @@ pub trait StateMachine {
     res
   }
   /// A transducer_wrap_unwrap wraps the Input into an Option and unwraps the Output out of Option
+  /// this is an unsafe version, will panic on step result items being None
   fn transduce_wrap_unwrap(&mut self, inp: Vec<Self::InputType>, verbose: bool, _: bool) -> Vec<Result<Self::OutputType, String>> {
-    let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
-    if verbose {
-      self.verbose_state();
-    }
+    let mut unwrapped_res: Vec<Result<Self::OutputType, String>> = Vec::new();
+    let mut wrapped_inp: Vec<Option<&Self::InputType>> = Vec::new();
     for cur_inp in inp {
-      match self.step(&cur_inp) {
-        Ok(cur_out) => {
-          if verbose {
-            self.verbose_step(&cur_inp,&cur_out);
-          }
-          res.push(Ok(cur_out));
+      wrapped_inp.push(Some(&cur_inp.to_borrow()));
+    }
+    let res_transduce = self.transduce(wrapped_inp, verbose, false);
+    for cur_res in res_transduce {
+      match cur_res {
+        Ok(good_res) => {
+          match good_res {
+            None    => panic!("transduce_wrap_unwrap does not support None responses"),
+            Some(x) => unwrapped_res.push(Ok(x))
+          };
         },
-        Err(e) => {
-          res.push(Err(e));
-        }
+        Err(e) => unwrapped_res.push(Err(e))
       };
     }
-    res
+    unwrapped_res
   }
+  fn state_machine_name(&self) -> String {
+    "UNSET".to_string()
+  }
+  /// Ideally verbose input and output should have a default implementation
+  /// here were it simply works for simple types that implement Display.
+  fn verbose_state(&self) -> String;
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String;
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String;
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String;
   /// StateMachines register themselves as Composites on Constituent
   /// They are non-composite machines by default.
   /// When a StateMachine is Composite, its output/input is allowed to be None.

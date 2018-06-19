@@ -59,16 +59,28 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Option<Self::OutputType>, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
+  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     self.state = outp.0;
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("Cascade::Start state: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+    format!("State (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
-  fn verbose_step(&self, _: &Self::InputType, _: Option<&Self::OutputType>) -> String {
-    format!("Cascade::Step: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_input(&self, _: Option<&Self::InputType>) -> String {
+    // XXX: Maybe should be verbose_input from StateMachines
+    format!("In (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  }
+  fn verbose_output(&self, _: Option<&Self::OutputType>) -> String {
+    // XXX: Maybe should be verbose_input from StateMachines
+    format!("In (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  }
+  fn state_machine_name(&self) -> String {
+    "Cascade".to_string()
+  }
+  fn verbose_step(&self, _: Option<&Self::InputType>, _: Option<&Self::OutputType>) -> String {
+    // XXX:This is not properly traversing intermediate steps on complex machines.
+    format!("{}(XXX):(SM1:{}, SM2:{})",self.state_machine_name(),self.sm1.verbose_state(),self.sm2.verbose_state())
   }
   fn is_composite(&self) -> bool {
     true
