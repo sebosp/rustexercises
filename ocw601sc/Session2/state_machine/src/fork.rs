@@ -45,20 +45,21 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> 
   where SM1: super::StateMachine<InputType=<SM2>::InputType>,
   {
-    match inp {
-      None      => Ok((*state,None)),
-      Some(inp) => {
-        let sm1_next_values = self.sm1.get_next_values(&state.0,Some(inp))?;
-        match sm1_next_values.1 {
-          None               => Err("Fork::FIXME:XXX:TODO".to_string()),
-          Some(sm1_next_val) => {
-            let sm2_next_values = self.sm2.get_next_values(&state.1,Some(inp))?;
-            match sm2_next_values.1 {
-              None               => Err("FIXME:XXX:TODO".to_string()),
-              Some(sm2_next_val) => {
-                Ok(((sm1_next_values.0,sm2_next_values.0),Some((sm1_next_val,sm2_next_val))))
-              }
-            }
+    let sm1_next_values = self.sm1.get_next_values(&state.0,inp)?;
+    match sm1_next_values.1 {
+      None               => {
+        let sm2_next_values = self.sm2.get_next_values(&state.1,None)?;
+        match sm2_next_values.1 {
+          None    => Ok(((sm1_next_values.0,sm2_next_values.0),None)),
+          Some(_) => Err("Fork got unsupported different Option types from branches".to_string()),
+        }
+      },
+      Some(sm1_next_val) => {
+        let sm2_next_values = self.sm2.get_next_values(&state.1,inp)?;
+        match sm2_next_values.1 {
+          None               => Err("Fork got unsupported different Option types from branches".to_string()),
+          Some(sm2_next_val) => {
+            Ok(((sm1_next_values.0,sm2_next_values.0),Some((sm1_next_val,sm2_next_val))))
           }
         }
       }

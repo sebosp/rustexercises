@@ -48,7 +48,7 @@ impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2>
           Some(sm1_next_val) => {
             let sm2_next_values = self.sm2.get_next_values(&state.1,Some(&inp.1))?;
             match sm2_next_values.1 {
-              None               => Err("FIXME:XXX:TODO".to_string()),
+              None               => Err("Parallel::FIXME:XXX:TODO".to_string()),
               Some(sm2_next_val) => {
                 Ok(((sm1_next_values.0,sm2_next_values.0),Some((sm1_next_val,sm2_next_val))))
               }

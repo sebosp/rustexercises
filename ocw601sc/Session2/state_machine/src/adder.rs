@@ -70,6 +70,10 @@ where T: Num + Clone + Copy + Display,
 mod tests {
   use super::*;
   use super::super::*;
+  use accumulator::Accumulator;
+  use delay::Delay;
+  use fork::Fork;
+  use cascade::Cascade;
   #[test]
   fn it_gets_next_values_some() {
     let test = Adder::new(0);
@@ -93,5 +97,17 @@ mod tests {
   fn it_checks_is_composite() {
     let test = Adder::new(0);
     assert_eq!(test.is_composite(),false);
+  }
+  #[test]
+  fn it_gets_next_state_adder_from_forked_cascade() {
+    let test: Cascade<Fork<Accumulator<i8>,Accumulator<i8>>,Adder<i8>> = StateMachine::new(((1i8,2i8),0i8));
+    assert_eq!(test.get_next_state(&((0i8, 0i8), 0i8),&0i8),Ok(((0i8,0i8),0i8)));
+    assert_eq!(test.get_next_state(&((2i8, 3i8), 0i8),&5i8),Ok(((7i8,8i8),15i8)));
+  }
+  #[test]
+  fn it_gets_next_state_adder_from_forked_delays() {
+    let test: Cascade<Fork<Delay<i8>,Delay<i8>>,Adder<i8>> = StateMachine::new(((1i8,2i8),0i8));
+    assert_eq!(test.get_next_state(&((0i8, 0i8), 0i8),&0i8),Ok(((0i8,0i8),0i8)));
+    assert_eq!(test.get_next_state(&((2i8, 3i8), 0i8),&7i8),Ok(((7i8,7i8),5i8)));
   }
 }

@@ -110,12 +110,10 @@ impl super::StateMachine for SimpleParkingGate {
   fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
     //let temp_inp = inp;
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    self.state = outp.0;
     match outp.1 {
       None           => Ok(Some("nop".to_string())),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(Some(next_val))
-      }
+      Some(next_val) => Ok(Some(next_val))
     }
   }
   fn state_machine_name(&self) -> String {
@@ -165,6 +163,13 @@ impl SimpleParkingGate {
 mod tests {
   use super::*;
   use super::super::*;
+  #[test]
+  fn it_outputs_state() {
+    let test = SimpleParkingGate::new(GateState::Waiting);
+    assert_eq!(test.output_state(GateState::Waiting),  None);
+    assert_eq!(test.output_state(GateState::Raising),  Some("raise".to_string()));
+    assert_eq!(test.output_state(GateState::Lowering), Some("lower".to_string()));
+  }
   #[test]
   fn it_gets_next_values_gate_down_no_car() {
     let test = SimpleParkingGate::new(GateState::Waiting);
