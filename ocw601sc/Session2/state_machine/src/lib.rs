@@ -20,6 +20,7 @@ pub mod selector;
 pub mod simple_parking_gate;
 pub mod increment;
 pub mod adder;
+pub mod wire;
 // Composite machines:
 pub mod cascade;
 pub mod parallel;

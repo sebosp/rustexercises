@@ -1,37 +1,33 @@
-//! # Delay
-//! A machine that delays its input stream by one time step, we have to specify
-//! what the first output should be (`initial_value`).
-//! The state of a Delay machine is just the input from the previous step, and
-//! the output is the state (which is, therefore, the input from the previous
-//! time step). The Delay struct is also knows as *_R_*
+//! # Wire
+//! A Simple StateMachine who's Output is just the Input
 use std::fmt::Display;
-pub struct Delay<T>
+pub struct Wire<T>
 where T: Display + Clone + Copy
 {
   pub state: T,
 }
-impl<T> super::StateMachine for Delay<T>
+impl<T> super::StateMachine for Wire<T>
 where T: Display + Clone + Copy
 {
-  /// `StateType`(S) = numbers
+  /// `StateType`(S) = T
   type StateType = T;
-  /// `InputType`(I) = numbers
+  /// `InputType`(I) = T
   type InputType = T;
-  /// `OutputType`(O) = numbers
+  /// `OutputType`(O) = T
   type OutputType = T;
   /// `initial_value`(_s0_) is defined when initialized.
   fn new(initial_value: Self::StateType) -> Self {
-    Delay {
+    Wire {
       state: initial_value,
     }
   }
   fn start(&mut self){}
-  fn get_next_state(&self, state: &Self::StateType, _: &Self::InputType) -> Result<Self::StateType, String> {
-    Ok(*state)
+  fn get_next_state(&self, _: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
+    Ok(*inp)
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
-      None => Ok((*state,Some(*state))), // When receiving None it should return the current value
+      None => Ok((*state,Some(*state))),
       Some(inp) => {
         let next_state = self.get_next_state(state,inp)?;
         Ok((*inp,Some(next_state)))
@@ -47,7 +43,7 @@ where T: Display + Clone + Copy
     format!("State: {}",self.state)
   }
   fn state_machine_name(&self) -> String {
-    "Delay".to_string()
+    "Wire".to_string()
   }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
@@ -71,31 +67,31 @@ mod tests {
   use super::super::*;
   #[test]
   fn it_gets_next_values_some() {
-    let test = Delay::new(0);
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&1i8),(1i8,0i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&2i8,&3i8),(3i8,2i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&4i8,&5i8),(5i8,4i8));
+    let test = Wire::new(0);
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&1i8),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&2i8,&3i8),(3i8,3i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&4i8,&5i8),(5i8,5i8));
   }
   #[test]
   fn it_gets_next_values_none() {
-    let test = Delay::new(0);
+    let test = Wire::new(0);
     assert_eq!(test.get_next_values(&0i8,None),Ok((0i8,Some(0i8))));
   }
   #[test]
   fn it_steps() {
-    let mut test = Delay::new(0);
-    assert_eq!(test.step_unwrap(&1i8),0i8);
+    let mut test = Wire::new(0);
+    assert_eq!(test.step_unwrap(&1i8),1i8);
     assert_eq!(test.state,1i8);
   }
   #[test]
   fn it_gets_next_state() {
-    let test = Delay::new(0);
-    assert_eq!(test.get_next_state(&0i8,&1i8),Ok(0i8));
-    assert_eq!(test.get_next_state(&1i8,&0i8),Ok(1i8));
+    let test = Wire::new(0);
+    assert_eq!(test.get_next_state(&0i8,&1i8),Ok(1i8));
+    assert_eq!(test.get_next_state(&1i8,&0i8),Ok(0i8));
   }
   #[test]
   fn it_checks_is_composite() {
-    let test = Delay::new(0);
+    let test = Wire::new(0);
     assert_eq!(test.is_composite(),false);
   }
 }

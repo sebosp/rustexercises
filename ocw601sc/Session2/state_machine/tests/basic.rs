@@ -12,6 +12,7 @@ mod tests {
   use state_machine::selector::*;
   use state_machine::simple_parking_gate::*;
   use state_machine::increment::*;
+  use state_machine::wire::*;
   #[test]
   fn it_transduces_accumulator() {
     let mut test = Accumulator::new(0);
@@ -155,5 +156,14 @@ mod tests {
     let mut test_transduce = Increment::new(3i64);
     let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce_wrap_unwrap(vec![1i64,2i64,3i64,4i64,5i64],true, true);
     assert_eq!(transduce_res, vec![Ok(4i64), Ok(5i64), Ok(6i64), Ok(7i64), Ok(8i64)]);
+  }
+  #[test]
+  fn it_transduces_wire() {
+    let mut test = Wire::new(0);
+    test.start();
+    assert_eq!(test.step_unwrap(&10i64),10i64);
+    let mut test_transduce = Wire::new(0);
+    let transduce_res: Vec<Result<i64,String>> = test_transduce.transduce_wrap_unwrap(vec![100i64, -3i64, 4i64, -123i64, 10i64],true, true);
+    assert_eq!(transduce_res, vec![Ok(100i64), Ok(-3i64), Ok(4i64), Ok(-123i64), Ok(10i64)]);
   }
 }
