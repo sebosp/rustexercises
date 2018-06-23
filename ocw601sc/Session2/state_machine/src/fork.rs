@@ -73,28 +73,31 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
   fn verbose_state(&self) -> String {
     format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
-  fn state_machine_name(&self) -> String {
-    "Fork".to_string()
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    // XXX:This is not properly traversing intermediate steps on complex machines.
-    format!("XXX-{}: {} {} {}",self.state_machine_name(),self.verbose_input(inp),self.verbose_state(), self.verbose_output(outp))
-    // "XXX".to_string()
-  }
-  fn is_composite(&self) -> bool {
-    true
-  }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
       None      => format!("In: None"),
-      Some(inp) => format!("In: ({},{})",self.sm1.verbose_input(Some(&inp)),self.sm2.verbose_input(Some(&inp)))
+      Some(inp) => format!("In: {}",self.sm1.verbose_input(Some(&inp)))
     }
   }
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
     match outp {
-      None       => format!("Out: (None)"),
-      Some(outp) => format!("Out: ({},{})",self.sm1.verbose_output(Some(&outp.0)),self.sm2.verbose_output(Some(&outp.1)))
+      None       => format!("Out: ({{A: {}}},{{B: {}}})",self.sm1.verbose_output(None),self.sm2.verbose_output(None)),
+      Some(outp) => format!("Out: ({{A: {}}},{{B: {}}})",self.sm1.verbose_output(Some(&outp.0)),self.sm2.verbose_output(Some(&outp.1)))
     }
+  }
+  fn state_machine_name(&self) -> String {
+    "Fork".to_string()
+  }
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None =>
+        format!("{}::{} ({{A: {}}},{{B: {}}}) {}",self.state_machine_name(),self.verbose_input(inp),self.sm1.verbose_step(inp,None),self.sm2.verbose_step(inp,None),self.verbose_output(None)),
+      Some(outp) =>
+        format!("{}::{} ({{A: {}}},{{B: {}}}) {}",self.state_machine_name(),self.verbose_input(inp),self.sm1.verbose_step(inp,Some(&outp.0)),self.sm2.verbose_step(inp,Some(&outp.1)),self.verbose_output(Some(&outp))),
+    }
+  }
+  fn is_composite(&self) -> bool {
+    true
   }
 }
 #[cfg(test)]

@@ -37,7 +37,10 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
     // In order to get the Output from StateMachine1, we need to go through get_next_values...
     let sm1_next_value = self.sm1.get_next_values(&state.0,Some(inp))?;
     match sm1_next_value.1 {
-      None               => Err("Cascade::FIXME:XXX:TODO".to_string()),
+      None               => {
+        let sm2_next_state = self.sm2.get_next_values(&state.1,None)?;
+        Ok((sm1_next_value.0,sm2_next_state.0))
+      },
       Some(sm1_next_val) => {
         let sm2_next_state = self.sm2.get_next_state(&state.1,&sm1_next_val)?;
         Ok((sm1_next_value.0,sm2_next_state))
@@ -67,20 +70,36 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   fn verbose_state(&self) -> String {
     format!("State (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
-  fn verbose_input(&self, _: Option<&Self::InputType>) -> String {
-    // XXX: Maybe should be verbose_input from StateMachines
-    format!("In (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+      self.sm1.verbose_input(inp)
   }
-  fn verbose_output(&self, _: Option<&Self::OutputType>) -> String {
-    // XXX: Maybe should be verbose_input from StateMachines
-    format!("In (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Out: SM2:None"),
+      Some(outp) => format!("Out: SM2:{}",self.sm2.verbose_output(Some(outp))),
+    }
   }
   fn state_machine_name(&self) -> String {
     "Cascade".to_string()
   }
-  fn verbose_step(&self, _: Option<&Self::InputType>, _: Option<&Self::OutputType>) -> String {
-    // XXX:This is not properly traversing intermediate steps on complex machines.
-    format!("{}(XXX):(SM1:{}, SM2:{})",self.state_machine_name(),self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String
+  where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
+  {
+    match self.sm1.get_next_values(&self.state.0,inp) {
+      Err(err)         => {
+          format!("In Cascade, got Err for SM1 get_next_values: {}",err)
+      },
+      Ok(sm1_next_val) => {
+        match sm1_next_val.1 {
+          None           => {
+            format!("{}::[{{SM1:[{}]}}->{{SM2:[{}]}}]",self.state_machine_name(),self.sm1.verbose_step(inp,None),self.sm2.verbose_step(None,outp))
+          },
+          Some(sm1_outp) => {
+            format!("{}::[{{SM1:[{}]}}->{{SM2:[{}]}}]",self.state_machine_name(),self.sm1.verbose_step(inp,Some(&sm1_outp)),self.sm2.verbose_step(Some(&sm1_outp),outp))
+          }
+        }
+      }
+    }
   }
   fn is_composite(&self) -> bool {
     true
@@ -94,6 +113,9 @@ mod tests {
   use average2::Average2;
   use delay::Delay;
   use increment::Increment;
+  use fork::Fork;
+  use adder::Adder;
+  use wire::Wire;
   #[test]
   fn it_cascades_accumulators_next_values() {
     let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
@@ -158,5 +180,39 @@ mod tests {
   fn it_checks_is_composite() {
     let test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((2i64,3i64));
     assert_eq!(test.is_composite(),true);
+  }
+  #[test]
+  fn it_fibonaccis_two_delays_with_wire() {
+    // Exercise 4.7
+    let mut test:
+      Cascade<
+        Fork<          //None 1 1
+          Wire<i64>,   // 0 0 1 1 2
+          Cascade<     //
+            Delay<i64>,// 0 0 1 1 2
+            Delay<i64> // 1 1 0 0 1
+          >
+        >,
+        Adder<i64>     // 0 1 1 2 3
+      > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
+    /*assert_eq!(test.get_next_values(&((0i64,(0i64,1i64)),0i64),None),Ok((((0i64, (0i64, 0i64)), 1i64), Some(1i64))));
+    assert_eq!(test.get_next_values(&((1i64,(0i64,0i64)),0i64),Some(&1i64)),Ok((((1i64, (1i64, 0i64)), 1i64), Some(1i64))));
+    assert_eq!(test.get_next_values(&((1i64,(1i64,0i64)),1i64),Some(&1i64)),Ok((((1i64, (1i64, 1i64)), 1i64), Some(1i64))));*/
+    assert_eq!(test.step(None),Ok(Some(1i64)));
+    println!("{}",test.verbose_step(None,Some(&1i64)));
+    assert_eq!(test.step(Some(&1i64)),Ok(Some(1i64)));
+    println!("{}",test.verbose_step(Some(&1i64),Some(&1i64)));
+    assert_eq!(test.step(Some(&1i64)),Ok(Some(1i64)));
+    println!("{}",test.verbose_step(Some(&1i64),Some(&1i64)));
+    assert_eq!(test.step(Some(&1i64)),Ok(Some(2i64)));
+    println!("{}",test.verbose_step(Some(&1i64),Some(&2i64)));
+    assert_eq!(test.step(Some(&2i64)),Ok(Some(3i64)));
+    println!("{}",test.verbose_step(Some(&2i64),Some(&3i64)));
+    /*assert_eq!(test.step(Some(&3i64)),Ok(Some(5i64)));
+    println!("{}",test.verbose_step(Some(&3i64),Some(&5i64)));
+    assert_eq!(test.step(Some(&5i64)),Ok(Some(8i64)));
+    println!("{}",test.verbose_step(Some(&5i64),Some(&8i64)));
+    assert_eq!(test.step(Some(&8i64)),Ok(Some(13i64)));
+    println!("{}",test.verbose_step(Some(&8i64),Some(&13i64)));*/
   }
 }

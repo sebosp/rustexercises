@@ -45,7 +45,7 @@ where T: Num + Clone + Copy + Display,
     Ok(outp.1)
   }
   fn verbose_state(&self) -> String {
-    format!("No Start state")
+    format!("State: {}",self.state)
   }
   fn state_machine_name(&self) -> String {
     "Adder".to_string()
@@ -63,7 +63,7 @@ where T: Num + Clone + Copy + Display,
     }
   }
   fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
+    format!("{}::{} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp),self.verbose_state())
   }
 }
 #[cfg(test)]
@@ -79,6 +79,8 @@ mod tests {
     let test = Adder::new(0);
     assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(0i8,0i8)),(0i8,0i8));
     assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(5i8,7i8)),(12i8,12i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(1i8,0i8)),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(0i8,1i8)),(1i8,1i8));
   }
   #[test]
   fn it_gets_next_values_none() {

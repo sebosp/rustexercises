@@ -4,6 +4,7 @@ mod tests {
   use state_machine::*;
   use state_machine::cascade::*;
   use state_machine::adder::*;
+  use state_machine::wire::*;
 //  use state_machine::accumulator::*;
 //  use state_machine::gain::*;
 //  use state_machine::abc::*;
@@ -56,6 +57,22 @@ mod tests {
     let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
     assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(2i64)), Ok(Some(2i64)), Ok(Some(2i64)), Ok(Some(2i64))]);
   }
+  /// Fibonacci sequence using Feedback, Cascade, Fork and 3 delays.
+  ///
+  /// Feedback
+  ///             ............................................. ...........
+  ///             :            -----                          : :         :
+  ///             :        /->|Delay|------------------------>:-:---      :
+  ///     ------- :  ----  |   -----                          : :   |     :
+  ///  ->|Cascade|->|Fork|-|           .......... ........... : :   v     :
+  /// |   ------- :  ----  |   ------- :  ----- : :  -----  : : :  -----  :
+  /// |           :        \->|Cascade|->|Delay|--->|Delay|-->:-:>|Adder|-:-
+  /// |           :            ------- :  ----- : :  -----  : : :  -----  : |
+  /// |           :                    :........: :.........: : :         : v
+  /// |           :                                           : :         : |
+  /// |           :...........................................: :.........: |
+  /// |                                                                     |
+  ///  ---<------------------------------------------------------------<----
   #[test]
   fn it_fibonaccis() {
     let mut feedback:
@@ -73,5 +90,43 @@ mod tests {
         > = StateMachine::new(((1i64,(1i64, 0i64)),0i64));
     let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
     assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(8i64)), Ok(Some(13i64))]);
+  }
+  #[test]
+  fn it_fibonaccis_good_start() {
+    // Exercise 4.6
+    let mut feedback:
+        Feedback<
+          Cascade<
+            Fork<
+              Delay<i64>,
+              Cascade<
+                Delay<i64>,
+                Delay<i64>
+              >
+            >,
+            Adder<i64>
+          >
+        > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
+    let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
+    assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(8i64))]);
+  }
+  #[test]
+  fn it_fibonaccis_two_delays_with_wire47() {
+    // Exercise 4.7
+    let mut feedback:
+        Feedback<
+          Cascade<
+            Fork<
+              Wire<i64>,
+              Cascade<
+                Delay<i64>,
+                Delay<i64>
+              >
+            >,
+            Adder<i64>
+          >
+        > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
+    let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
+    assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(8i64))]);
   }
 }
