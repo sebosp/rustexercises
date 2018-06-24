@@ -42,7 +42,6 @@ impl<SM> super::StateMachine for Feedback<SM>
     where SM: super::StateMachine,
           SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
   {
-    println!("Feedback::get_next_values");
     match inp {
       Some(_) => Err("The input of a Feedback StateMachine must be None".to_string()),
       None => {
@@ -78,25 +77,29 @@ impl<SM> super::StateMachine for Feedback<SM>
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {} -> ({},{})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(self.state),
+             self.verbose_input(inp),
+             self.verbose_state(outp.0),
+             self.verbose_output(outp.1))
+    }
     self.state = outp.0;
     Ok(outp.1)
   }
-  fn verbose_state(&self) -> String {
-    format!("State: (SM:{})",self.sm.verbose_state())
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State: (SM:{})",self.sm.verbose_state(state))
   }
   fn state_machine_name(&self) -> String {
     "Feedback".to_string()
   }
-  fn verbose_step(&self, _: Option<&Self::InputType>, _: Option<&Self::OutputType>) -> String {
-    // XXX:This is not properly traversing intermediate steps on complex machines.
-    format!("{}(XXX):({})",self.state_machine_name(),self.sm.verbose_state())
-  }
   fn is_composite(&self) -> bool {
     true
   }
-
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
       None       => format!("In: None"),

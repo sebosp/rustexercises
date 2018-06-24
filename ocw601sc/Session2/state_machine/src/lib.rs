@@ -51,7 +51,11 @@ pub trait StateMachine {
   /// return them. We do not promise anything about how many times this method
   /// will be called and in what circumstances.
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>;
-  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String>;
+  /// `step` changes the current state and goes through the mutable process
+  /// of the StateMachine progression. It expects a verbose flag and a depth flag.
+  /// The depth flag helps debugging complex big State Machines when they are
+  /// composite machines.
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String>;
   /// Helper function that wraps the input in a Some() and unwraps the Result
   /// Panics on None
   fn get_next_values_wrap_unwrap(&self, state: &Self::StateType, inp: &Self::InputType) -> (Self::StateType,Self::OutputType) {
@@ -60,7 +64,7 @@ pub trait StateMachine {
       Err(x) => panic!("get_next_values_wrap_unwrap got Err({})",x),
       Ok(opt) => {
         match opt.1 {
-          None => panic!("step_unwrap got None"),
+          None => panic!("get_next_values_wrap_unwrap got None"),
           Some(val) => (opt.0,val)
         }
       }
@@ -68,7 +72,7 @@ pub trait StateMachine {
   }
   /// Helper function that unwraps the Result. Panics on Err/None
   fn step_unwrap(&mut self, inp: &Self::InputType) -> Self::OutputType {
-    let res = self.step(Some(inp));
+    let res = self.step(Some(inp), false, 0i8);
     match res {
       Err(x) => panic!("step_unwrap got Err({})",x),
       Ok(opt) => {
@@ -83,16 +87,14 @@ pub trait StateMachine {
   /// serve as inputs to the state machine, and returns as ouput the set of
   /// outputs of the machine for each input
   fn transduce(&mut self, inp: Vec<Option<Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
+    let depth = 0i8; // The depth for verbose printing show indent
     let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
     if verbose {
       self.verbose_state();
     }
     for cur_inp in inp {
-      match self.step(cur_inp.as_ref()) {
+      match self.step(cur_inp.as_ref(),verbose,depth) {
         Ok(cur_out) => {
-          if verbose {
-            self.verbose_step(cur_inp.as_ref(),cur_out.as_ref());
-          }
           res.push(Ok(cur_out));
         },
         Err(e) => {

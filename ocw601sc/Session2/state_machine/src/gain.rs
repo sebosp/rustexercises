@@ -36,7 +36,7 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&T::zero(),inp)?;
     Ok(outp.1)
   }

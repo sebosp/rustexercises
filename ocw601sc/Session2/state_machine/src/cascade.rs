@@ -62,44 +62,42 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      //println!("{{\"Class\":\"{}\",[{{\"SM1\":{} }},{{\"SM2\":{} }}]}}", // XXX: JSON
+      println!("{}{}::{}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(self.state),
+             self.verbose_input(inp));
+    }
+    let sm1_next_value = self.sm1.step(Some(inp))?;
+    match sm1_next_value.1 {
+      None      => let _ = self.sm2.step(None,verbose,depth+1)?;
+      Some(val) => let _ = self.sm2.step(Some(&val),verbose,depth+1)?;
+    }
+    if verbose {
+      println!("{}{}:: {} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(outp.0),
+             self.verbose_output(outp.1));
+    }
     self.state = outp.0;
     Ok(outp.1)
   }
-  fn verbose_state(&self) -> String {
-    format!("State (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State ({},{})",self.sm1.verbose_state(),self.sm2.verbose_state())
   }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
-      self.sm1.verbose_input(inp)
+    self.sm1.verbose_input(inp)
   }
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
-    match outp {
-      None       => format!("Out: SM2:None"),
-      Some(outp) => format!("Out: SM2:{}",self.sm2.verbose_output(Some(outp))),
-    }
+    self.sm2.verbose_output(outp)
   }
   fn state_machine_name(&self) -> String {
     "Cascade".to_string()
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String
-  where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
-  {
-    match self.sm1.get_next_values(&self.state.0,inp) {
-      Err(err)         => {
-          format!("In Cascade, got Err for SM1 get_next_values: {}",err)
-      },
-      Ok(sm1_next_val) => {
-        match sm1_next_val.1 {
-          None           => {
-            format!("{}::[{{SM1:[{}]}}->{{SM2:[{}]}}]",self.state_machine_name(),self.sm1.verbose_step(inp,None),self.sm2.verbose_step(None,outp))
-          },
-          Some(sm1_outp) => {
-            format!("{}::[{{SM1:[{}]}}->{{SM2:[{}]}}]",self.state_machine_name(),self.sm1.verbose_step(inp,Some(&sm1_outp)),self.sm2.verbose_step(Some(&sm1_outp),outp))
-          }
-        }
-      }
-    }
   }
   fn is_composite(&self) -> bool {
     true

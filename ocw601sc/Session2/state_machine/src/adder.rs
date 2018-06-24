@@ -40,12 +40,19 @@ where T: Num + Clone + Copy + Display,
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} -> ({})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_input(inp),
+             self.verbose_output(outp.1))
+    }
     Ok(outp.1)
   }
-  fn verbose_state(&self) -> String {
-    format!("State: {}",self.state)
+  fn verbose_state(&self, _: &Self::StateType) -> String {
+    format!("No State")
   }
   fn state_machine_name(&self) -> String {
     "Adder".to_string()
@@ -61,9 +68,6 @@ where T: Num + Clone + Copy + Display,
       None       => format!("Out: None"),
       Some(outp) => format!("Out: {}", outp),
     }
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    format!("{}::{} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp),self.verbose_state())
   }
 }
 #[cfg(test)]
