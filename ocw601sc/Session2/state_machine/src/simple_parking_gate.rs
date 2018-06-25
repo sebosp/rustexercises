@@ -107,9 +107,18 @@ impl super::StateMachine for SimpleParkingGate {
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     //let temp_inp = inp;
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {} -> ({},{})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.state),
+             self.verbose_input(inp),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
     self.state = outp.0;
     match outp.1 {
       None           => Ok(Some("nop".to_string())),
@@ -138,16 +147,13 @@ impl super::StateMachine for SimpleParkingGate {
       }
     }
   }
-  fn verbose_state(&self) -> String {
-    match self.state {
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    match state {
       GateState::Waiting  => "State: Waiting".to_string(),
       GateState::Raising  => "State: Raising".to_string(),
       GateState::Raised   => "State: Raised".to_string(),
       GateState::Lowering => "State: Lowering".to_string(),
     }
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    format!("{}: {} {} {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.verbose_state())
   }
 }
 impl SimpleParkingGate {

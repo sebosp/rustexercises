@@ -55,7 +55,7 @@ pub trait StateMachine {
   /// of the StateMachine progression. It expects a verbose flag and a depth flag.
   /// The depth flag helps debugging complex big State Machines when they are
   /// composite machines.
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String>;
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String>;
   /// Helper function that wraps the input in a Some() and unwraps the Result
   /// Panics on None
   fn get_next_values_wrap_unwrap(&self, state: &Self::StateType, inp: &Self::InputType) -> (Self::StateType,Self::OutputType) {
@@ -89,11 +89,8 @@ pub trait StateMachine {
   fn transduce(&mut self, inp: Vec<Option<Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
     let depth = 0i8; // The depth for verbose printing show indent
     let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
-    if verbose {
-      self.verbose_state();
-    }
     for cur_inp in inp {
-      match self.step(cur_inp.as_ref(),verbose,depth) {
+      match self.step(cur_inp.as_ref(), verbose, depth) {
         Ok(cur_out) => {
           res.push(Ok(cur_out));
         },
@@ -131,10 +128,9 @@ pub trait StateMachine {
   }
   /// Ideally verbose input and output should have a default implementation
   /// here were it simply works for simple types that implement Display.
-  fn verbose_state(&self) -> String;
+  fn verbose_state(&self, state: &Self::StateType) -> String;
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String;
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String;
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String;
   /// StateMachines register themselves as Composites on Constituent
   /// They are non-composite machines by default.
   /// When a StateMachine is Composite, its output/input is allowed to be None.

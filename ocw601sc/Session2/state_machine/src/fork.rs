@@ -45,6 +45,9 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> 
   where SM1: super::StateMachine<InputType=<SM2>::InputType>,
   {
+    // XXX: it should be possible to have the `type OutputType` be an Option and not sending here as
+    // Option? That would allow us to have two OutputTypes Options separate in each branch.
+    // Another option is to re-wrap each OutputType item in its own Option:  Some(Some(X),None)
     let sm1_next_values = self.sm1.get_next_values(&state.0,inp)?;
     match sm1_next_values.1 {
       None               => {
@@ -65,36 +68,44 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.state),
+             self.verbose_input(inp)),
+    }
+    let _ = self.sm1.step(inp,verbose,depth+1)?;
+    let _ = self.sm2.step(inp,verbose,depth+1)?;
+    if verbose {
+      println!("{}{}::{} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
     self.state = outp.0;
     Ok(outp.1)
   }
-  fn verbose_state(&self) -> String {
-    format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(&state.0),self.sm2.verbose_state(&state.1))
   }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
       None      => format!("In: None"),
-      Some(inp) => format!("In: {}",self.sm1.verbose_input(Some(&inp)))
+      Some(inp) => format!("{}",self.sm1.verbose_input(Some(&inp)))
     }
   }
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
     match outp {
-      None       => format!("Out: ({{A: {}}},{{B: {}}})",self.sm1.verbose_output(None),self.sm2.verbose_output(None)),
-      Some(outp) => format!("Out: ({{A: {}}},{{B: {}}})",self.sm1.verbose_output(Some(&outp.0)),self.sm2.verbose_output(Some(&outp.1)))
+      None       => format!("Out: (None)"),
+      Some(outp) => format!("({},{})",self.sm1.verbose_output(Some(&outp.0)),self.sm2.verbose_output(Some(&outp.1)))
     }
   }
   fn state_machine_name(&self) -> String {
     "Fork".to_string()
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    match outp {
-      None =>
-        format!("{}::{} ({{A: {}}},{{B: {}}}) {}",self.state_machine_name(),self.verbose_input(inp),self.sm1.verbose_step(inp,None),self.sm2.verbose_step(inp,None),self.verbose_output(None)),
-      Some(outp) =>
-        format!("{}::{} ({{A: {}}},{{B: {}}}) {}",self.state_machine_name(),self.verbose_input(inp),self.sm1.verbose_step(inp,Some(&outp.0)),self.sm2.verbose_step(inp,Some(&outp.1)),self.verbose_output(Some(&outp))),
-    }
   }
   fn is_composite(&self) -> bool {
     true

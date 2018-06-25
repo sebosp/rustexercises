@@ -39,38 +39,55 @@ impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2>
     Ok((sm1_next_state,sm2_next_state))
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
-    match inp {
-      None      => Ok((*state,None)),
-      Some(inp) => {
-        let sm1_next_values = self.sm1.get_next_values(&state.0,Some(&inp.0))?;
-        match sm1_next_values.1 {
-          None               => Err("Parallel::FIXME:XXX:TODO".to_string()),
-          Some(sm1_next_val) => {
-            let sm2_next_values = self.sm2.get_next_values(&state.1,Some(&inp.1))?;
-            match sm2_next_values.1 {
-              None               => Err("Parallel::FIXME:XXX:TODO".to_string()),
-              Some(sm2_next_val) => {
-                Ok(((sm1_next_values.0,sm2_next_values.0),Some((sm1_next_val,sm2_next_val))))
-              }
-            }
-          }
+    let sm1_res = match inp {
+      None      => self.sm1.get_next_values(&state.0,None)?,
+      Some(val) => self.sm1.get_next_values(&state.0,Some(&val.0))?,
+    };
+    let sm2_res = match inp {
+      None      => self.sm2.get_next_values(&state.1,None)?,
+      Some(val) => self.sm2.get_next_values(&state.1,Some(&val.1))?,
+    };
+    match sm1_res.1 {
+      None      => {
+        match sm2_res.1 {
+          None    => Ok(((sm1_res.0,sm2_res.0),None)),
+          Some(_) => Err("Parallel:XXX:Got different Option types for Output, SM1 is None, SM2 is Some()".to_string()),
+        }
+      },
+      Some(sm1_res_outp) => {
+        match sm2_res.1 {
+          None               => Err("Parallel:XXX:Got different Option types for Output, SM1 is Some(), SM2 is None".to_string()),
+          Some(sm2_res_outp) => Ok(((sm1_res.0,sm2_res.0),Some((sm1_res_outp,sm2_res_outp)))),
         }
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.state),
+             self.verbose_input(inp)),
+    }
+    let _ = self.sm1.step(inp.0,verbose,depth+1)?;
+    let _ = self.sm2.step(inp.1,verbose,depth+1)?;
+    if verbose {
+      println!("{}{}::{} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
     self.state = outp.0;
     Ok(outp.1)
   }
-  fn verbose_state(&self) -> String {
-    format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(&state.0),self.sm2.verbose_state(&state.1))
   }
   fn state_machine_name(&self) -> String {
     "Parallel".to_string()
-  }
-  fn verbose_step(&self, inp: Option<&Self::InputType>, outp: Option<&Self::OutputType>) -> String {
-    format!("{}: {} {} (SM1:{}, SM2:{}) {}", self.state_machine_name(), self.verbose_input(inp),self.verbose_output(outp), self.sm1.verbose_state(),self.sm2.verbose_state(), self.verbose_state())
   }
   fn is_composite(&self) -> bool {
     true

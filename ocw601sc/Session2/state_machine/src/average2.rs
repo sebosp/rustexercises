@@ -48,16 +48,16 @@ where T: Num + Display + Clone + Copy + FromPrimitive + ToPrimitive,
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     if verbose {
       println!("{}{}::{} {} -> ({},{})",
              "  ".repeat(depth),
              self.state_machine_name(),
-             self.verbose_state(self.state),
+             self.verbose_state(&self.state),
              self.verbose_input(inp),
-             self.verbose_state(outp.0),
-             self.verbose_output(outp.1))
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
     }
     self.state = outp.0;
     Ok(outp.1)

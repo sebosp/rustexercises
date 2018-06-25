@@ -45,12 +45,10 @@ impl<SM> super::StateMachine for Feedback<SM>
     match inp {
       Some(_) => Err("The input of a Feedback StateMachine must be None".to_string()),
       None => {
-        println!("Feedback(None) state: {}",self.verbose_state());
         let sm_next_value = self.sm.get_next_values(&state,None)?;
         match sm_next_value.1 {
           None => {
             if self.sm.is_composite() {
-              println!("Feedback(None) state: {}",self.verbose_state());
               let sm_feedback = self.sm.get_next_values(&state,None)?;
               match sm_feedback.1 {
                 None    =>
@@ -66,7 +64,6 @@ impl<SM> super::StateMachine for Feedback<SM>
             }
           },
           Some(sm_next_val) => {
-            println!("Feedback(Some) state: {}",self.verbose_state());
             let sm_feedback = self.sm.get_next_values(&state,Some(&sm_next_val))?;
             match sm_feedback.1 {
               None    => Err("The output of the Constituent Machine 2nd run must not be None".to_string()),
@@ -77,16 +74,26 @@ impl<SM> super::StateMachine for Feedback<SM>
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     if verbose {
-      println!("{}{}::{} {} -> ({},{})",
+      println!("{}{}::{} {}",
              "  ".repeat(depth),
              self.state_machine_name(),
-             self.verbose_state(self.state),
-             self.verbose_input(inp),
-             self.verbose_state(outp.0),
-             self.verbose_output(outp.1))
+             self.verbose_state(&self.state),
+             self.verbose_input(inp));
+    }
+    let sm_feedback = self.sm.step(None,verbose,depth+1)?;
+    match sm_feedback {
+      None      => println!("Feedback returns None on None input"),
+      Some(val) => let _ = self.sm.step(Some(&val),verbose,depth+1)?;
+    };
+    if verbose {
+      println!("{}{}::{} {}",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
     }
     self.state = outp.0;
     Ok(outp.1)

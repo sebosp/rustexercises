@@ -62,27 +62,27 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
       }
     }
   }
-  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: i8) -> Result<Option<Self::OutputType>, String> {
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
     if verbose {
       //println!("{{\"Class\":\"{}\",[{{\"SM1\":{} }},{{\"SM2\":{} }}]}}", // XXX: JSON
-      println!("{}{}::{}",
+      println!("{}{}::{} {}",
              "  ".repeat(depth),
              self.state_machine_name(),
-             self.verbose_state(self.state),
+             self.verbose_state(&self.state),
              self.verbose_input(inp));
     }
     let sm1_next_value = self.sm1.step(Some(inp))?;
     match sm1_next_value.1 {
       None      => let _ = self.sm2.step(None,verbose,depth+1)?;
       Some(val) => let _ = self.sm2.step(Some(&val),verbose,depth+1)?;
-    }
+    };
     if verbose {
-      println!("{}{}:: {} {}",
+      println!("{}{}::{} {}",
              "  ".repeat(depth),
              self.state_machine_name(),
-             self.verbose_state(outp.0),
-             self.verbose_output(outp.1));
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()));
     }
     self.state = outp.0;
     Ok(outp.1)
@@ -196,21 +196,13 @@ mod tests {
     /*assert_eq!(test.get_next_values(&((0i64,(0i64,1i64)),0i64),None),Ok((((0i64, (0i64, 0i64)), 1i64), Some(1i64))));
     assert_eq!(test.get_next_values(&((1i64,(0i64,0i64)),0i64),Some(&1i64)),Ok((((1i64, (1i64, 0i64)), 1i64), Some(1i64))));
     assert_eq!(test.get_next_values(&((1i64,(1i64,0i64)),1i64),Some(&1i64)),Ok((((1i64, (1i64, 1i64)), 1i64), Some(1i64))));*/
-    assert_eq!(test.step(None),Ok(Some(1i64)));
-    println!("{}",test.verbose_step(None,Some(&1i64)));
-    assert_eq!(test.step(Some(&1i64)),Ok(Some(1i64)));
-    println!("{}",test.verbose_step(Some(&1i64),Some(&1i64)));
-    assert_eq!(test.step(Some(&1i64)),Ok(Some(1i64)));
-    println!("{}",test.verbose_step(Some(&1i64),Some(&1i64)));
-    assert_eq!(test.step(Some(&1i64)),Ok(Some(2i64)));
-    println!("{}",test.verbose_step(Some(&1i64),Some(&2i64)));
-    assert_eq!(test.step(Some(&2i64)),Ok(Some(3i64)));
-    println!("{}",test.verbose_step(Some(&2i64),Some(&3i64)));
+    assert_eq!(test.step(None,true,0),Ok(Some(1i64)));
+    assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(1i64)));
+    assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(1i64)));
+    assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(2i64)));
+    assert_eq!(test.step(Some(&2i64),true,0),Ok(Some(3i64)));
     /*assert_eq!(test.step(Some(&3i64)),Ok(Some(5i64)));
-    println!("{}",test.verbose_step(Some(&3i64),Some(&5i64)));
     assert_eq!(test.step(Some(&5i64)),Ok(Some(8i64)));
-    println!("{}",test.verbose_step(Some(&5i64),Some(&8i64)));
-    assert_eq!(test.step(Some(&8i64)),Ok(Some(13i64)));
-    println!("{}",test.verbose_step(Some(&8i64),Some(&13i64)));*/
+    assert_eq!(test.step(Some(&8i64)),Ok(Some(13i64)));*/
   }
 }
