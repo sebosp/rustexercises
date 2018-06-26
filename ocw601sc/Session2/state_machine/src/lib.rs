@@ -72,7 +72,7 @@ pub trait StateMachine {
   }
   /// Helper function that unwraps the Result. Panics on Err/None
   fn step_unwrap(&mut self, inp: &Self::InputType) -> Self::OutputType {
-    let res = self.step(Some(inp), false, 0i8);
+    let res = self.step(Some(inp), false, 0usize);
     match res {
       Err(x) => panic!("step_unwrap got Err({})",x),
       Ok(opt) => {
@@ -87,7 +87,7 @@ pub trait StateMachine {
   /// serve as inputs to the state machine, and returns as ouput the set of
   /// outputs of the machine for each input
   fn transduce(&mut self, inp: Vec<Option<Self::InputType>>, verbose: bool, _: bool) -> Vec<Result<Option<Self::OutputType>, String>> {
-    let depth = 0i8; // The depth for verbose printing show indent
+    let depth = 0usize; // The depth for verbose printing show indent
     let mut res: Vec<Result<Option<Self::OutputType>, String>> = Vec::new();
     for cur_inp in inp {
       match self.step(cur_inp.as_ref(), verbose, depth) {

@@ -69,16 +69,24 @@ impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2>
              "  ".repeat(depth),
              self.state_machine_name(),
              self.verbose_state(&self.state),
-             self.verbose_input(inp)),
+             self.verbose_input(inp));
     }
-    let _ = self.sm1.step(inp.0,verbose,depth+1)?;
-    let _ = self.sm2.step(inp.1,verbose,depth+1)?;
+    match inp {
+      None      => {
+        let _ = self.sm1.step(None,verbose,depth+1)?;
+        let _ = self.sm2.step(None,verbose,depth+1)?;
+      }
+      Some(inp) => {
+        let _ = self.sm1.step(Some(&inp.0),verbose,depth+1)?;
+        let _ = self.sm2.step(Some(&inp.1),verbose,depth+1)?;
+      }
+    };
     if verbose {
       println!("{}{}::{} {}",
              "  ".repeat(depth),
              self.state_machine_name(),
              self.verbose_state(&outp.0),
-             self.verbose_output(outp.1.as_ref()))
+             self.verbose_output(outp.1.as_ref()));
     }
     self.state = outp.0;
     Ok(outp.1)

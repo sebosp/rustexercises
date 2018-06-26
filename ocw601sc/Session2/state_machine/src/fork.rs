@@ -75,7 +75,7 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
              "  ".repeat(depth),
              self.state_machine_name(),
              self.verbose_state(&self.state),
-             self.verbose_input(inp)),
+             self.verbose_input(inp));
     }
     let _ = self.sm1.step(inp,verbose,depth+1)?;
     let _ = self.sm2.step(inp,verbose,depth+1)?;
@@ -84,13 +84,13 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
              "  ".repeat(depth),
              self.state_machine_name(),
              self.verbose_state(&outp.0),
-             self.verbose_output(outp.1.as_ref()))
+             self.verbose_output(outp.1.as_ref()));
     }
     self.state = outp.0;
     Ok(outp.1)
   }
   fn verbose_state(&self, state: &Self::StateType) -> String {
-    format!("State: (SM1:{}, SM2:{})",self.sm1.verbose_state(&state.0),self.sm2.verbose_state(&state.1))
+    format!("[{}::{},{}::{}]",self.sm1.state_machine_name(),self.sm1.verbose_state(&state.0),self.sm2.state_machine_name(),self.sm2.verbose_state(&state.1))
   }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {

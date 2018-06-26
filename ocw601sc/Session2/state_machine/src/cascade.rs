@@ -72,10 +72,13 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
              self.verbose_state(&self.state),
              self.verbose_input(inp));
     }
-    let sm1_next_value = self.sm1.step(Some(inp))?;
-    match sm1_next_value.1 {
-      None      => let _ = self.sm2.step(None,verbose,depth+1)?;
-      Some(val) => let _ = self.sm2.step(Some(&val),verbose,depth+1)?;
+    let sm1_outp = match inp {
+      None      => self.sm1.step(None,verbose,depth+1)?,
+      Some(val) => self.sm1.step(Some(&val),verbose,depth+1)?,
+    };
+    let _ = match sm1_outp {
+      None      => self.sm2.step(None,verbose,depth+1)?,
+      Some(val) => self.sm2.step(Some(&val),verbose,depth+1)?,
     };
     if verbose {
       println!("{}{}::{} {}",
@@ -88,7 +91,7 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
     Ok(outp.1)
   }
   fn verbose_state(&self, state: &Self::StateType) -> String {
-    format!("State ({},{})",self.sm1.verbose_state(),self.sm2.verbose_state())
+    format!("({}::{},{}::{})",self.sm1.state_machine_name(),self.sm1.verbose_state(&state.0),self.sm2.state_machine_name(),self.sm2.verbose_state(&state.1))
   }
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     self.sm1.verbose_input(inp)
@@ -180,29 +183,26 @@ mod tests {
     assert_eq!(test.is_composite(),true);
   }
   #[test]
-  fn it_fibonaccis_two_delays_with_wire() {
-    // Exercise 4.7
+  fn it_forks_two_delays_plus_wire() {
+    // Exercise 4.7 without Feedback
     let mut test:
       Cascade<
-        Fork<          //None 1 1
-          Wire<i64>,   // 0 0 1 1 2
-          Cascade<     //
-            Delay<i64>,// 0 0 1 1 2
-            Delay<i64> // 1 1 0 0 1
+        Fork<       //Init|None  |1  |1  |1  |2  |3  |4  |6  |
+          Wire<i64>,   //0|None>0|1>1|1>1|1>1|2>2|3>3|4>4|6>6|
+          Cascade<     // |      |        
+            Delay<i64>,//0|None>0|1>0|1>1|1>1|2>1|3>2|4>3|6>4|
+            Delay<i64> //1|   0>1|0>0|1>0|1>1|1>1|2>1|3>2|4>3|
           >
         >,
-        Adder<i64>     // 0 1 1 2 3
+        Adder<i64>     //0|     1|  1|  1|  2|  3|  4|  6|  9|
       > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
-    /*assert_eq!(test.get_next_values(&((0i64,(0i64,1i64)),0i64),None),Ok((((0i64, (0i64, 0i64)), 1i64), Some(1i64))));
-    assert_eq!(test.get_next_values(&((1i64,(0i64,0i64)),0i64),Some(&1i64)),Ok((((1i64, (1i64, 0i64)), 1i64), Some(1i64))));
-    assert_eq!(test.get_next_values(&((1i64,(1i64,0i64)),1i64),Some(&1i64)),Ok((((1i64, (1i64, 1i64)), 1i64), Some(1i64))));*/
-    assert_eq!(test.step(None,true,0),Ok(Some(1i64)));
+
+    assert_eq!(test.step(None,       true,0),Ok(Some(1i64)));
     assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(1i64)));
     assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(1i64)));
     assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(2i64)));
     assert_eq!(test.step(Some(&2i64),true,0),Ok(Some(3i64)));
-    /*assert_eq!(test.step(Some(&3i64)),Ok(Some(5i64)));
-    assert_eq!(test.step(Some(&5i64)),Ok(Some(8i64)));
-    assert_eq!(test.step(Some(&8i64)),Ok(Some(13i64)));*/
+    assert_eq!(test.step(Some(&3i64),true,0),Ok(Some(4i64)));
+    assert_eq!(test.step(Some(&4i64),true,0),Ok(Some(6i64)));
   }
 }
