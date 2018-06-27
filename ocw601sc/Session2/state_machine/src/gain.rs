@@ -29,7 +29,7 @@ where T: Num + Display + Clone + Copy
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
-      None => Ok((*state,None)),
+      None => Ok((*state,Some(*state))),
       Some(inp) => {
         let next_state = self.get_next_state(state,inp)?;
         Ok((next_state,Some(next_state)))
