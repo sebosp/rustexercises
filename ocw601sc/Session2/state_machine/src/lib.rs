@@ -19,10 +19,11 @@ pub mod sumlast3;
 pub mod selector;
 pub mod simple_parking_gate;
 pub mod increment;
-pub mod adder;
-pub mod multiplier;
+pub mod negation;
 pub mod wire;
 // Composite machines:
+pub mod adder;
+pub mod multiplier;
 pub mod cascade;
 pub mod parallel;
 pub mod fork;
