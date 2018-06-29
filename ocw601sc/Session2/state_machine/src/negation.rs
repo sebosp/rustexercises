@@ -22,8 +22,8 @@ impl super::StateMachine for Negation {
     }
   }
   fn start(&mut self){}
-  fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
-    Ok(!state)
+  fn get_next_state(&self, _: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
+    Ok(!inp)
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
@@ -75,8 +75,8 @@ mod tests {
   fn it_gets_next_values() {
     let test = Negation::new(false);
     assert_eq!(test.get_next_values_wrap_unwrap(&false,&false),(true,true));
-    assert_eq!(test.get_next_values_wrap_unwrap(&false,&true),(true,true));
-    assert_eq!(test.get_next_values_wrap_unwrap(&true,&false),(false,false));
+    assert_eq!(test.get_next_values_wrap_unwrap(&false,&true),(false,false));
+    assert_eq!(test.get_next_values_wrap_unwrap(&true,&false),(true,true));
     assert_eq!(test.get_next_values_wrap_unwrap(&true,&true),(false,false));
   }
   #[test]
@@ -89,8 +89,8 @@ mod tests {
   fn it_gets_next_state() {
     let test = Negation::new(false);
     assert_eq!(test.get_next_state(&false,&false),Ok(true));
-    assert_eq!(test.get_next_state(&false,&true),Ok(true));
-    assert_eq!(test.get_next_state(&true,&false),Ok(false));
+    assert_eq!(test.get_next_state(&false,&true),Ok(false));
+    assert_eq!(test.get_next_state(&true,&false),Ok(true));
     assert_eq!(test.get_next_state(&true,&true),Ok(false));
   }
   #[test]

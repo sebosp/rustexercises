@@ -7,6 +7,7 @@ mod tests {
   use state_machine::wire::*;
 //  use state_machine::accumulator::*;
   use state_machine::gain::*;
+  use state_machine::negation::*;
 //  use state_machine::abc::*;
 //  use state_machine::updown::*;
   use state_machine::delay::*;
@@ -41,6 +42,13 @@ mod tests {
     let mut feedback: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((1i64,1i64));
     let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
     assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(4i64)), Ok(Some(5i64)), Ok(Some(6i64))]);
+  }
+  #[test]
+  fn it_feedbacks_negation_alternates() {
+    // Exercise 4.4
+    let mut feedback: Feedback<Negation> = StateMachine::new(true);
+    let transduce_res: Vec<Result<Option<bool>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
+    assert_eq!(transduce_res, vec![Ok(Some(false)),Ok(Some(true)), Ok(Some(false)), Ok(Some(true)), Ok(Some(false)), Ok(Some(true))]);
   }
   #[test]
   fn it_cascades_fork_delays_adder() {
@@ -131,7 +139,7 @@ mod tests {
     assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(8i64)), Ok(Some(13i64))]);
   }
   #[test]
-  fn it_feedback_doubles48() {
+  fn it_feedback_doubles_gain48() {
     // Exercise 4.8
     let mut feedback:
         Feedback<
@@ -142,22 +150,6 @@ mod tests {
         > = StateMachine::new((1i64,2i64));
     let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
     assert_eq!(transduce_res, vec![Ok(Some(2i64)),Ok(Some(4i64)), Ok(Some(8i64)), Ok(Some(16i64)), Ok(Some(32i64)), Ok(Some(64i64))]);
-  }
-  #[test]
-  fn it_feedback_doubles_multiplier48() {
-    // Exercise 4.8
-    let mut feedback:
-        Feedback<
-          Cascade<
-            Fork<
-              Wire<i64>,
-              Delay<i64>
-            >,
-            Multiplier<i64>
-          >
-        > = StateMachine::new(((1i64,2i64),0i64));
-    let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
-    assert_eq!(transduce_res, vec![Ok(Some(1i64)), Ok(Some(1i64)), Ok(Some(2i64)),Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(8i64))]);
   }
   #[test]
   fn it_feedback_squares49() {
