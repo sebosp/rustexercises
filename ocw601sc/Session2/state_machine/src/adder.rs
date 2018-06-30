@@ -15,7 +15,7 @@ where T: Num + Clone + Copy + Display,
   /// `StateType`(S) = numbers
   type StateType = T;
   /// `InputType`(I) = numbers
-  type InputType = (T,T);
+  type InputType = (Option<T>,Option<T>);
   /// `OutputType`(O) = numbers
   type OutputType = T;
   fn new(_: Self::StateType) -> Self {
@@ -28,7 +28,18 @@ where T: Num + Clone + Copy + Display,
   }
   fn get_next_state(&self, _: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
     let inp = *inp;
-    Ok(inp.0 + inp.1)
+    match inp.0 {
+      None        =>
+        match inp.1 {
+          None        => Ok(T::zero()), // Additive Identity.
+          Some(inp_1) => Ok(inp_1),
+        },
+      Some(inp_0) =>
+        match inp.1 {
+          None        => Ok(inp_0),
+          Some(inp_1) => Ok(inp_0 + inp_1),
+        },
+    }
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
@@ -60,7 +71,19 @@ where T: Num + Clone + Copy + Display,
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
       None       => format!("In: None"),
-      Some(inp)  => format!("In: ({},{})", inp.0, inp.1),
+      Some(inp)  =>
+        match inp.0 {
+          None        => 
+            match inp.1 {
+              None        => format!("In: (None,None)"),
+              Some(inp_1) => format!("In: (None,{})",inp_1),
+            }
+          Some(inp_0) => 
+            match inp.1 {
+              None        => format!("In: ({},None)",inp_0),
+              Some(inp_1) => format!("In: ({},{})",inp_0,inp_1),
+            }
+        }
     }
   }
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
@@ -79,12 +102,24 @@ mod tests {
   use fork::Fork;
   use cascade::Cascade;
   #[test]
+  fn it_gets_next_values_input_some_none() {
+    let test = Adder::new(0);
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),None)),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(10i8),None)),(10i8,10i8));
+  }
+  #[test]
+  fn it_gets_next_values_input_none_some() {
+    let test = Adder::new(0);
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(None,Some(0i8))),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(None,Some(10i8))),(10i8,10i8));
+  }
+  #[test]
   fn it_gets_next_values_some() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(0i8,0i8)),(0i8,0i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(5i8,7i8)),(12i8,12i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(1i8,0i8)),(1i8,1i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(0i8,1i8)),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),Some(0i8))),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(5i8),Some(7i8))),(12i8,12i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(1i8),Some(0i8))),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),Some(1i8))),(1i8,1i8));
   }
   #[test]
   fn it_gets_next_values_none() {
@@ -95,9 +130,9 @@ mod tests {
   #[test]
   fn it_gets_next_state() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_state(&0i8,&(0i8,0i8)),Ok(0i8));
-    assert_eq!(test.get_next_state(&0i8,&(0i8,1i8)),Ok(1i8));
-    assert_eq!(test.get_next_state(&5i8,&(3i8,7i8)),Ok(10i8));
+    assert_eq!(test.get_next_state(&0i8,&(Some(0i8),Some(0i8))),Ok(0i8));
+    assert_eq!(test.get_next_state(&0i8,&(Some(0i8),Some(1i8))),Ok(1i8));
+    assert_eq!(test.get_next_state(&5i8,&(Some(3i8),Some(7i8))),Ok(10i8));
   }
   #[test]
   fn it_checks_is_composite() {
