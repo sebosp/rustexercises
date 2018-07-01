@@ -36,31 +36,15 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   {
     // In order to get the Output from StateMachine1, we need to go through get_next_values...
     let sm1_next_value = self.sm1.get_next_values(&state.0,Some(inp))?;
-    match sm1_next_value.1 {
-      None               => {
-        let sm2_next_state = self.sm2.get_next_values(&state.1,None)?;
-        Ok((sm1_next_value.0,sm2_next_state.0))
-      },
-      Some(sm1_next_val) => {
-        let sm2_next_state = self.sm2.get_next_state(&state.1,&sm1_next_val)?;
-        Ok((sm1_next_value.0,sm2_next_state))
-      }
-    }
+    let sm2_next_state = self.sm2.get_next_values(&state.1,sm1_next_value.1.as_ref())?;
+    Ok((sm1_next_value.0,sm2_next_state.0))
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>
   where SM1: super::StateMachine<OutputType=<SM2>::InputType>,
   {
     let sm1_next_value = self.sm1.get_next_values(&state.0,inp)?;
-    match sm1_next_value.1 {
-      None               => {
-        let sm2_next_value = self.sm2.get_next_values(&state.1,None)?;
-        Ok(((sm1_next_value.0,sm2_next_value.0),sm2_next_value.1))
-      }
-      Some(sm1_next_val) => {
-        let sm2_next_value = self.sm2.get_next_values(&state.1,Some(&sm1_next_val))?;
-        Ok(((sm1_next_value.0,sm2_next_value.0),sm2_next_value.1))
-      }
-    }
+    let sm2_next_value = self.sm2.get_next_values(&state.1,sm1_next_value.1.as_ref())?;
+    Ok(((sm1_next_value.0,sm2_next_value.0),sm2_next_value.1))
   }
   fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
     let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
@@ -72,14 +56,8 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
              self.verbose_state(&self.state),
              self.verbose_input(inp));
     }
-    let sm1_outp = match inp {
-      None      => self.sm1.step(None,verbose,depth+1)?,
-      Some(val) => self.sm1.step(Some(&val),verbose,depth+1)?,
-    };
-    let _ = match sm1_outp {
-      None      => self.sm2.step(None,verbose,depth+1)?,
-      Some(val) => self.sm2.step(Some(&val),verbose,depth+1)?,
-    };
+    let sm1_outp = self.sm1.step(inp,verbose,depth+1)?;
+    let _ = self.sm2.step(sm1_outp.as_ref(),verbose,depth+1)?;
     if verbose {
       println!("{}{}::{} {}",
              "  ".repeat(depth),
