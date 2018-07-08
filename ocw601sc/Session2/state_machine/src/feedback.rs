@@ -1,7 +1,7 @@
 //! # Feedback StateMachine
-//! The input of a StateMachine is None and inspect the current status of the
-//! constituent machines. The output of the constituent machine becomes the
-//! the input of the Feedback StateMachine
+//! The initial input of this StateMachine is None, 
+//! Inspecting the current state of the constituent machine
+//! yields the Input for itself.
 use std::fmt::Display;
 pub struct Feedback<SM>
   where SM: super::StateMachine,
@@ -42,7 +42,7 @@ impl<SM> super::StateMachine for Feedback<SM>
           SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
   {
     match inp {
-      Some(_) => Err("The input of a Feedback2 StateMachine must be None".to_string()),
+      Some(_) => Err("The input of a Feedback StateMachine must be None".to_string()),
       None => {
         let sm_next_value = self.sm.get_next_values(&state,None)?;
         let sm_feedback = self.sm.get_next_values(&sm_next_value.0,sm_next_value.1.as_ref())?;
