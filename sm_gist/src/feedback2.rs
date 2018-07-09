@@ -23,12 +23,6 @@
 //! Is it possible to have something like this next snippet?
 //! where SM: super::StateMachine<InputType.1=<SM as super::StateMachine>::OutputType>>
 use std::fmt::Display;
-pub trait StateMachine {
-  type StateType;
-  type InputType;
-  type OutputType;
-  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>;
-}
 pub struct Feedback2<SM,T>
   where SM: super::StateMachine,
         SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
@@ -51,16 +45,18 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
   /// In the context of this InputType tuple: (first_val,second_val), these are requirements:
   /// a - The second_val must be an Option<T> (To support None)
   /// b - The second_val must also support Some(super::StateMachine<OutputType>)
-  type InputType = (Option<<SM>::OutputType>,Option<<SM>::OutputType>);
+  type InputType = (<SM>::InputType,<SM>::InputType);
   /// `OutputType`(O) = numbers
   type OutputType = <SM>::OutputType;
   /// `initial_value`(_s0_) is usually 0;
-  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Option<Self::OutputType>),String>
     where SM: super::StateMachine,
           SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
   {
-    let sm_next_value = self.sm.get_next_values(&state,Some((Some(inp),None)))?; // XXX: How do we pass the tuple (inp,None) to the internal StateMachine?
-    let sm_feedback = self.sm.get_next_values(&state,Some((inp,sm_next_value.1.as_ref())))?;
+    let temp_inp = (inp.0, None);
+    let sm_next_value = self.sm.get_next_values(&state,&temp_inp)?;
+    let feedback_inp = (inp.0, sm_next_value.1.as_ref());
+    let sm_feedback = self.sm.get_next_values(&state,&feedback_inp)?;
     Ok((sm_feedback.0,sm_feedback.1))
   }
 }

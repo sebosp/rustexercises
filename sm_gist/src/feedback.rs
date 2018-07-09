@@ -24,7 +24,7 @@ impl<SM> super::StateMachine for Feedback<SM>
   type InputType = <SM>::InputType;
   /// `OutputType`(O) = Constituent Machine's OutputType
   type OutputType = <SM>::OutputType;
-  fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String>
+  fn get_next_values(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<(Self::StateType,Option<Self::OutputType>),String>
     where SM: super::StateMachine,
           SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
   {
