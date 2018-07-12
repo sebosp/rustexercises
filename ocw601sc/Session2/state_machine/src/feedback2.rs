@@ -22,6 +22,7 @@
 //!
 //! Is it possible to have something like this next snippet?
 //! where SM: super::StateMachine<InputType.1=<SM as super::StateMachine>::OutputType>>
+//! XXX: This machine is not correct yet. The Tuple as InputState doesn't work.
 use std::fmt::Display;
 pub struct Feedback2<SM,T>
   where SM: super::StateMachine,
