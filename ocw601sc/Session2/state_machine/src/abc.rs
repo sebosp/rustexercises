@@ -15,7 +15,7 @@ impl super::StateMachine for ABC {
   /// Returns an ABC struct. `initial_value`(_s0_) is usually 0.
   fn new(initial_value: Self::StateType) -> Self {
     ABC {
-      state: initial_value
+      state: initial_value,
     }
   }
   fn start(&mut self){
@@ -49,21 +49,37 @@ impl super::StateMachine for ABC {
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(false),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {} -> ({},{})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.state),
+             self.verbose_input(inp),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
+    self.state = outp.0;
+    Ok(outp.1)
+  }
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State: {}", state)
+  }
+  fn state_machine_name(&self) -> String {
+    "ABC".to_string()
+  }
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None       => format!("In: None"),
+      Some(inp)  => format!("In: {}", inp),
     }
   }
-  fn verbose_state(&self) -> String {
-     format!("Start state: {}",self.state)
-  }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: {}", inp, outp, self.state)
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Out: None"),
+      Some(outp) => format!("Out: {}", outp),
+    }
   }
 }
 #[cfg(test)]
@@ -93,17 +109,17 @@ mod tests {
   #[test]
   fn it_steps_good_seq() {
     let mut test = ABC::new(0);
-    assert_eq!(test.step(&'a'),Ok(true));
+    assert_eq!(test.step_unwrap(&'a'),true);
     assert_eq!(test.state,1);
   }
   #[test]
   fn it_steps_bad_seq() {
     let mut test = ABC::new(0);
-    assert_eq!(test.step(&'a'),Ok(true));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
-    assert_eq!(test.step(&'a'),Ok(false));
+    assert_eq!(test.step_unwrap(&'a'),true);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
+    assert_eq!(test.step_unwrap(&'a'),false);
     assert_eq!(test.state,3);
   }
   #[test]
@@ -115,5 +131,10 @@ mod tests {
     assert_eq!(test.get_next_state(&0i8,&'a'),Ok(0i8));
     assert_eq!(test.get_next_state(&1i8,&'b'),Ok(0i8));
     assert_eq!(test.get_next_state(&2i8,&'c'),Ok(0i8));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = ABC::new(0);
+    assert_eq!(test.is_composite(),false);
   }
 }

@@ -4,7 +4,7 @@
 //! input that is a stream of lists or tuples of several values (or structures
 //! of values) and generates the stream made up only of the kth elements of
 //! the input values. 
-use std::fmt::Debug;
+use std::fmt::Debug; // XXX: Could this turn into a Display for usize?
 #[derive(Debug)]
 pub struct Selector<T>
 where T: Debug + Clone + Copy
@@ -48,18 +48,36 @@ where T: Debug + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.k,Some(inp))?;
-    match outp.1 {
-      None           => Ok(vec![]),
-      Some(next_val) => Ok(next_val)
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.k,inp)?;
+    if verbose {
+      println!("{}{}::{} {} -> ({},{})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.k),
+             self.verbose_input(inp),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
+    Ok(outp.1)
+  }
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("K: ({:?})", state)
+  }
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("In: None"),
+      Some(outp) => format!("In: {:?}", outp),
     }
   }
-  fn verbose_state(&self) -> String {
-     format!("Selector k: ({:?})",self.k)
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None      => format!("In: None"),
+      Some(inp) => format!("In: {:?}", inp),
+    }
   }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {:?} Out: {:?}", inp, outp)
+  fn state_machine_name(&self) -> String {
+    "Selector".to_string()
   }
 }
 #[cfg(test)]
@@ -69,11 +87,11 @@ mod tests {
   #[test]
   fn it_gets_next_values_good() {
     let test1 = Selector::new(0usize);
-    assert_eq!(test1.get_next_values(&0usize,Some(&vec!['a','b'])),Ok((0usize,Some(vec![]))));
+    assert_eq!(test1.get_next_values_wrap_unwrap(&0usize,&vec!['a','b']),(0usize,vec![]));
     let test2 = Selector::new(1usize);
-    assert_eq!(test2.get_next_values(&1usize,Some(&vec!['a','b'])),Ok((1usize,Some(vec!['a']))));
+    assert_eq!(test2.get_next_values_wrap_unwrap(&1usize,&vec!['a','b']),(1usize,vec!['a']));
     let test3 = Selector::new(2usize);
-    assert_eq!(test3.get_next_values(&1usize,Some(&vec!['a','b'])),Ok((2usize,Some(vec!['a','b']))));
+    assert_eq!(test3.get_next_values_wrap_unwrap(&1usize,&vec!['a','b']),(2usize,vec!['a','b']));
   }
   #[test]
   fn it_gets_next_values_bad_range() {
@@ -83,7 +101,7 @@ mod tests {
   #[test]
   fn it_steps() {
     let mut test = Selector::new(0);
-    assert_eq!(test.step(&vec!['a','b']),Ok(vec![]));
+    assert_eq!(test.step_unwrap(&vec!['a','b']),vec![]);
   }
   #[test]
   fn it_gets_next_state() {
@@ -92,5 +110,10 @@ mod tests {
     assert_eq!(test.get_next_state(&2usize,&vec!['a']),Ok(1usize));
     assert_eq!(test.get_next_state(&3usize,&vec!['a']),Ok(1usize));
     assert_eq!(test.get_next_state(&4usize,&vec!['a']),Ok(1usize));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test: Selector<usize> = Selector::new(1usize);
+    assert_eq!(test.is_composite(),false);
   }
 }

@@ -41,21 +41,37 @@ where T: Num + Display + Clone + Copy
       }
     }
   }
-  fn step(&mut self, inp: &Self::InputType) -> Result<Self::OutputType, String> {
-    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,Some(inp))?;
-    match outp.1 {
-      None           => Ok(T::zero()),
-      Some(next_val) => {
-        self.state = outp.0;
-        Ok(next_val)
-      }
+  fn step(&mut self, inp: Option<&Self::InputType>, verbose: bool, depth: usize) -> Result<Option<Self::OutputType>, String> {
+    let outp:(Self::StateType,Option<Self::OutputType>) = self.get_next_values(&self.state,inp)?;
+    if verbose {
+      println!("{}{}::{} {} -> ({},{})",
+             "  ".repeat(depth),
+             self.state_machine_name(),
+             self.verbose_state(&self.state),
+             self.verbose_input(inp),
+             self.verbose_state(&outp.0),
+             self.verbose_output(outp.1.as_ref()))
+    }
+    self.state = outp.0;
+    Ok(outp.1)
+  }
+  fn verbose_state(&self, state: &Self::StateType) -> String {
+    format!("State: ({},{})",state.0,state.1)
+  }
+  fn state_machine_name(&self) -> String {
+    "SumLast3".to_string()
+  }
+  fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
+    match inp {
+      None       => format!("In: None"),
+      Some(inp)  => format!("In: {}", inp),
     }
   }
-  fn verbose_state(&self) -> String {
-     format!("Start state: ({},{})",self.state.0, self.state.1)
-  }
-  fn verbose_step(&self,inp: &Self::InputType, outp: &Self::OutputType) -> String {
-     format!("In: {} Out: {} Next State: ({},{})", inp, outp, self.state.0, self.state.1)
+  fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {
+    match outp {
+      None       => format!("Out: None"),
+      Some(outp) => format!("Out: {}", outp),
+    }
   }
 }
 #[cfg(test)]
@@ -65,14 +81,14 @@ mod tests {
   #[test]
   fn it_gets_next_values() {
     let test = SumLast3::new((0i8,1i8));
-    assert_eq!(test.get_next_values(&(0i8,0i8),Some(&1i8)),Ok(((0i8,1i8),Some(1i8))));
-    assert_eq!(test.get_next_values(&(5i8,7i8),Some(&3i8)),Ok(((7i8,3i8),Some(15i8))));
-    assert_eq!(test.get_next_values(&(3i8,1i8),Some(&5i8)),Ok(((1i8,5i8),Some(9i8))));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&1i8),((0i8,1i8),1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(5i8,7i8),&3i8),((7i8,3i8),15i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,1i8),&5i8),((1i8,5i8),9i8));
   }
   #[test]
   fn it_steps() {
     let mut test = SumLast3::new((0i8,1i8));
-    assert_eq!(test.step(&2i8),Ok(3i8));
+    assert_eq!(test.step_unwrap(&2i8),3i8);
     assert_eq!(test.state,(1i8,2i8));
   }
   #[test]
@@ -81,5 +97,10 @@ mod tests {
     assert_eq!(test.get_next_state(&(0i8,0i8),&1i8),Ok((0i8,1i8)));
     assert_eq!(test.get_next_state(&(1i8,3i8),&5i8),Ok((3i8,5i8)));
     assert_eq!(test.get_next_state(&(5i8,3i8),&1i8),Ok((3i8,1i8)));
+  }
+  #[test]
+  fn it_checks_is_composite() {
+    let test = SumLast3::new((0i8,0i8));
+    assert_eq!(test.is_composite(),false);
   }
 }
