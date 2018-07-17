@@ -28,7 +28,7 @@ pub mod cascade;
 pub mod parallel;
 pub mod fork;
 pub mod feedback;
-//pub mod feedback2;
+pub mod feedback2;
 pub trait StateMachine {
   type StateType;
   type InputType;
@@ -140,4 +140,18 @@ pub trait StateMachine {
   fn is_composite(&self) -> bool {
     false
   }
+}
+/// Some functions expect two Inputs, for example when it joins the output
+/// of two State Machines:
+pub trait DualInput {
+  type T1;
+  type T2;
+}
+impl<T> DualInput for DualValues<T> {
+  type T1 = T;
+  type T2 = T;
+}
+pub struct DualValues<T> {
+  pub inp1: Option<T>,
+  pub inp2: Option<T>,
 }
