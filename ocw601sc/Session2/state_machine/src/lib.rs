@@ -209,6 +209,7 @@ mod tests {
     let rhs:DualValues<u8,String> = DualValues{ val1: None, val2: Some("a".to_string())};
     assert_eq!(lhs,rhs);
   }
+  #[test]
   fn it_compares_ne_dualvalues() {
     let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
     let rhs = DualValues{ val1: Some(7), val2: Some("a".to_string())};
