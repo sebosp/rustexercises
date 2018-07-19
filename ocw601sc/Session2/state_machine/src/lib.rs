@@ -147,11 +147,86 @@ pub trait DualInput {
   type T1;
   type T2;
 }
-impl<T> DualInput for DualValues<T> {
-  type T1 = T;
-  type T2 = T;
+impl<T1,T2> DualInput for DualValues<T1,T2> {
+  type T1 = T1;
+  type T2 = T2;
 }
-pub struct DualValues<T> {
-  pub inp1: Option<T>,
-  pub inp2: Option<T>,
+#[derive(Debug)]
+pub struct DualValues<T1,T2> {
+  pub val1: Option<T1>,
+  pub val2: Option<T2>,
+}
+impl<T1,T2> PartialEq for DualValues<T1,T2>
+where T1: PartialEq,
+      T2: PartialEq,
+{
+  fn eq(&self, rhs: &DualValues<T1,T2>) -> bool
+  where T1: PartialEq,
+      T2: PartialEq,
+  {
+    let val1cmp = match self.val1 {
+      Some(ref lval1) => match rhs.val1 {
+        None       => false,
+        Some(ref rval1) => {
+          lval1 == rval1
+        },
+      },
+      None       => match rhs.val1 {
+        None    => true,
+        Some(_) => false,
+      }
+    };
+    let val2cmp = match self.val2 {
+      Some(ref lval2) => match rhs.val2 {
+        None       => false,
+        Some(ref rval2) => {
+          lval2 == rval2
+        },
+      },
+      None       => match rhs.val2 {
+        None    => true,
+        Some(_) => false,
+      }
+    };
+    (val1cmp == true && val1cmp == val2cmp)
+  }
+}
+#[cfg(test)]
+mod tests {
+  use super::*;
+  #[test]
+  fn it_compares_eq_dualvalues() {
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,u8> = DualValues{ val1: None, val2: None};
+    let rhs:DualValues<u8,u8> = DualValues{ val1: None, val2: None};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,u8> = DualValues{ val1: Some(3), val2: None};
+    let rhs :DualValues<u8,u8>= DualValues{ val1: Some(3), val2: None};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: None, val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: None, val2: Some("a".to_string())};
+    assert_eq!(lhs,rhs);
+  }
+  fn it_compares_ne_dualvalues() {
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(7), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(3), val2: Some("b".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: None,    val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: None};
+    let rhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: None,    val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: None};
+    assert_ne!(lhs,rhs);
+  }
 }
