@@ -28,7 +28,7 @@ pub mod cascade;
 pub mod parallel;
 pub mod fork;
 pub mod feedback;
-//pub mod feedback2;
+pub mod feedback2;
 pub trait StateMachine {
   type StateType;
   type InputType;
@@ -139,5 +139,95 @@ pub trait StateMachine {
   /// When a StateMachine is Composite, its output/input is allowed to be None.
   fn is_composite(&self) -> bool {
     false
+  }
+}
+/// Some functions expect two Inputs, for example when it joins the output
+/// of two State Machines:
+pub trait DualInput {
+  type T1;
+  type T2;
+}
+impl<T1,T2> DualInput for DualValues<T1,T2> {
+  type T1 = T1;
+  type T2 = T2;
+}
+#[derive(Debug)]
+pub struct DualValues<T1,T2> {
+  pub val1: Option<T1>,
+  pub val2: Option<T2>,
+}
+impl<T1,T2> PartialEq for DualValues<T1,T2>
+where T1: PartialEq,
+      T2: PartialEq,
+{
+  fn eq(&self, rhs: &DualValues<T1,T2>) -> bool
+  where T1: PartialEq,
+      T2: PartialEq,
+  {
+    let val1cmp = match self.val1 {
+      Some(ref lval1) => match rhs.val1 {
+        None       => false,
+        Some(ref rval1) => {
+          lval1 == rval1
+        },
+      },
+      None       => match rhs.val1 {
+        None    => true,
+        Some(_) => false,
+      }
+    };
+    let val2cmp = match self.val2 {
+      Some(ref lval2) => match rhs.val2 {
+        None       => false,
+        Some(ref rval2) => {
+          lval2 == rval2
+        },
+      },
+      None       => match rhs.val2 {
+        None    => true,
+        Some(_) => false,
+      }
+    };
+    (val1cmp == true && val1cmp == val2cmp)
+  }
+}
+#[cfg(test)]
+mod tests {
+  use super::*;
+  #[test]
+  fn it_compares_eq_dualvalues() {
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,u8> = DualValues{ val1: None, val2: None};
+    let rhs:DualValues<u8,u8> = DualValues{ val1: None, val2: None};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,u8> = DualValues{ val1: Some(3), val2: None};
+    let rhs :DualValues<u8,u8>= DualValues{ val1: Some(3), val2: None};
+    assert_eq!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: None, val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: None, val2: Some("a".to_string())};
+    assert_eq!(lhs,rhs);
+  }
+  #[test]
+  fn it_compares_ne_dualvalues() {
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(7), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs = DualValues{ val1: Some(3), val2: Some("b".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: None,    val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: None};
+    let rhs = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: None,    val2: Some("a".to_string())};
+    assert_ne!(lhs,rhs);
+    let lhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: Some("a".to_string())};
+    let rhs:DualValues<u8,String> = DualValues{ val1: Some(3), val2: None};
+    assert_ne!(lhs,rhs);
   }
 }

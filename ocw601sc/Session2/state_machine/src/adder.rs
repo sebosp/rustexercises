@@ -15,7 +15,7 @@ where T: Num + Clone + Copy + Display,
   /// `StateType`(S) = numbers
   type StateType = T;
   /// `InputType`(I) = numbers
-  type InputType = (Option<T>,Option<T>);
+  type InputType = super::DualValues<T,T>;
   /// `OutputType`(O) = numbers
   type OutputType = T;
   fn new(_: Self::StateType) -> Self {
@@ -27,17 +27,16 @@ where T: Num + Clone + Copy + Display,
     self.state = T::zero()
   }
   fn get_next_state(&self, _: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
-    let inp = *inp;
-    match inp.0 {
+    match inp.val1 {
       None        =>
-        match inp.1 {
+        match inp.val2 {
           None        => Ok(T::zero()), // Additive Identity.
-          Some(inp_1) => Ok(inp_1),
+          Some(inp_2) => Ok(inp_2),
         },
-      Some(inp_0) =>
-        match inp.1 {
-          None        => Ok(inp_0),
-          Some(inp_1) => Ok(inp_0 + inp_1),
+      Some(inp_1) =>
+        match inp.val2 {
+          None        => Ok(inp_1),
+          Some(inp_2) => Ok(inp_1 + inp_2),
         },
     }
   }
@@ -72,16 +71,16 @@ where T: Num + Clone + Copy + Display,
     match inp {
       None       => format!("In: None"),
       Some(inp)  =>
-        match inp.0 {
+        match inp.val1 {
           None        => 
-            match inp.1 {
+            match inp.val2 {
               None        => format!("In: (None,None)"),
-              Some(inp_1) => format!("In: (None,{})",inp_1),
+              Some(inp_2) => format!("In: (None,{})",inp_2),
             }
-          Some(inp_0) => 
-            match inp.1 {
-              None        => format!("In: ({},None)",inp_0),
-              Some(inp_1) => format!("In: ({},{})",inp_0,inp_1),
+          Some(inp_1) => 
+            match inp.val2 {
+              None        => format!("In: ({},None)",inp_1),
+              Some(inp_2) => format!("In: ({},{})",inp_1,inp_2),
             }
         }
     }
@@ -104,22 +103,22 @@ mod tests {
   #[test]
   fn it_gets_next_values_input_some_none() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),None)),(0i8,0i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(10i8),None)),(10i8,10i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(0i8), val2: None}),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(10i8),val2: None}),(10i8,10i8));
   }
   #[test]
   fn it_gets_next_values_input_none_some() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(None,Some(0i8))),(0i8,0i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(None,Some(10i8))),(10i8,10i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: None, val2: Some(0i8)}),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: None, val2: Some(10i8)}),(10i8,10i8));
   }
   #[test]
   fn it_gets_next_values_some() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),Some(0i8))),(0i8,0i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(5i8),Some(7i8))),(12i8,12i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(1i8),Some(0i8))),(1i8,1i8));
-    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&(Some(0i8),Some(1i8))),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(0i8), val2: Some(0i8)}),(0i8,0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(5i8), val2: Some(7i8)}),(12i8,12i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(1i8), val2: Some(0i8)}),(1i8,1i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&0i8,&DualValues{ val1: Some(0i8), val2: Some(1i8)}),(1i8,1i8));
   }
   #[test]
   fn it_gets_next_values_none() {
@@ -130,9 +129,9 @@ mod tests {
   #[test]
   fn it_gets_next_state() {
     let test = Adder::new(0);
-    assert_eq!(test.get_next_state(&0i8,&(Some(0i8),Some(0i8))),Ok(0i8));
-    assert_eq!(test.get_next_state(&0i8,&(Some(0i8),Some(1i8))),Ok(1i8));
-    assert_eq!(test.get_next_state(&5i8,&(Some(3i8),Some(7i8))),Ok(10i8));
+    assert_eq!(test.get_next_state(&0i8,&DualValues{ val1: Some(0i8), val2: Some(0i8)}),Ok(0i8));
+    assert_eq!(test.get_next_state(&0i8,&DualValues{ val1: Some(0i8), val2: Some(1i8)}),Ok(1i8));
+    assert_eq!(test.get_next_state(&5i8,&DualValues{ val1: Some(3i8), val2: Some(7i8)}),Ok(10i8));
   }
   #[test]
   fn it_checks_is_composite() {
