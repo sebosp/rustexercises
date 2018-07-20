@@ -3,7 +3,7 @@ use std::fmt::Display;
 pub struct Feedback2<SM,T>
   where SM: super::StateMachine,
         SM: super::StateMachine<OutputType=T>,
-        SM: super::StateMachine<InputType=super::DualValues<T>>,
+        SM: super::StateMachine<InputType=super::DualValues<T,T>>,
         <SM>::StateType: Clone + Copy,
         <SM>::InputType: super::DualInput,
         T: Display + Clone + Copy,
@@ -14,15 +14,15 @@ pub struct Feedback2<SM,T>
 impl<SM,T> super::StateMachine for Feedback2<SM,T>
   where SM: super::StateMachine,
         SM: super::StateMachine<OutputType=T>,
-        SM: super::StateMachine<InputType=super::DualValues<T>>,
+        SM: super::StateMachine<InputType=super::DualValues<T,T>>,
         <SM>::StateType: Clone + Copy,
         <SM>::InputType: super::DualInput,
-        T: Display + Clone + Copy,
+        T: Display + Clone + Copy + PartialEq,
 {
   /// `StateType`(S) = Something inside constituent SM
   type StateType = <SM>::StateType;
   /// `InputType`(I) = Something inside constituent SM
-  type InputType = super::DualValues<T>;
+  type InputType = super::DualValues<T,T>;
   /// `OutputType`(O) = Something inside constituent SM
   type OutputType = <SM>::OutputType;
   fn new(initial_value: Self::StateType) -> Self {
@@ -40,8 +40,8 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
     match inp {
       None    => Err("The input of a Feedback2 StateMachine must not be None".to_string()),
       Some(val) => {
-        let sm_next_value = self.sm.get_next_values(&state,Some(&super::DualValues{ inp1: val.inp1, inp2: None }))?;
-        let sm_feedback   = self.sm.get_next_values(&state,Some(&super::DualValues{ inp1: val.inp1, inp2: sm_next_value.1 }))?;
+        let sm_next_value = self.sm.get_next_values(&state,Some(&super::DualValues{ val1: val.val1, val2: None }))?;
+        let sm_feedback   = self.sm.get_next_values(&state,Some(&super::DualValues{ val1: val.val1, val2: sm_next_value.1 }))?;
         match sm_feedback.1 {
           None    => Err("The output of the Constituent Machine Feedback must not be None".to_string()),
           Some(sm_feedback_val) => Ok((sm_feedback.0,Some(sm_feedback_val)))
@@ -53,7 +53,7 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
     match inp {
       None    => Err("The input of a Feedback2 StateMachine must not be None".to_string()),
       Some(val) => {
-        let outp:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ inp1: val.inp1, inp2: None }))?;
+        let outp:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ val1: val.val1, val2: None }))?;
         if verbose {
           println!("{}{}::{{ {} {} }} Feedback2 {{ {} In/{} }}",
                  "  ".repeat(depth),
@@ -64,8 +64,8 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
                  self.verbose_output(outp.1.as_ref())
                  );
         }
-        let feedback:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ inp1: val.inp1, inp2: outp.1 }))?;
-        let _ = self.sm.step(Some(&super::DualValues{ inp1: val.inp1, inp2: outp.1 }),verbose,depth+1)?;
+        let feedback:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ val1: val.val1, val2: outp.1 }))?;
+        let _ = self.sm.step(Some(&super::DualValues{ val1: val.val1, val2: outp.1 }),verbose,depth+1)?;
         if verbose {
           println!("{}{}::{} {}",
                  "  ".repeat(depth),
@@ -89,14 +89,14 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
     match inp {
       None       => format!("In: None"),
       Some(inp)  =>
-        match inp.inp1 {
+        match inp.val1 {
           None        => 
-            match inp.inp2 {
+            match inp.val2 {
               None        => format!("In: (None,None)"),
               Some(inp_1) => format!("In: (None,{})",inp_1),
             }
           Some(inp_0) => 
-            match inp.inp2 {
+            match inp.val2 {
               None        => format!("In: ({},None)",inp_0),
               Some(inp_1) => format!("In: ({},{})",inp_0,inp_1),
             }
