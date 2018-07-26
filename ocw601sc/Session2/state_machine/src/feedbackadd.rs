@@ -2,58 +2,48 @@
 use std::fmt::Display;
 extern crate num_traits;
 use num_traits::*;
-pub struct FeedbackAdd<SM1,SM2,T>
-  where SM1: super::StateMachine,
-        SM2: super::StateMachine,
-        SM1: super::StateMachine<InputType=T>,
-        SM2: super::StateMachine<OutputType=T>,
-        SM1: super::StateMachine<OutputType=<SM2>::InputType>,
-        SM2: super::StateMachine<OutputType=T>,
-        <SM1>::StateType: Clone + Copy,
-        <SM2>::StateType: Clone + Copy,
+pub struct FeedbackAdd<SM,T>
+  where SM: super::StateMachine,
+        SM: super::StateMachine<InputType=T>,
+        SM: super::StateMachine<OutputType=T>,
+        <SM>::StateType: Clone + Copy,
         T: Num + Display + Clone + Copy + PartialEq,
 {
-  pub sm1: SM1,
-  pub sm2: SM2,
-  pub state: (<SM1>::StateType,<SM2>::StateType),
+  pub sm: SM,
+  pub state: <SM>::StateType,
 }
-impl<SM1,SM2,T> super::StateMachine for FeedbackAdd<SM1,SM2,T>
-  where SM1: super::StateMachine,
-        SM2: super::StateMachine,
-        SM1: super::StateMachine<InputType=T>,
-        SM2: super::StateMachine<OutputType=T>,
-        SM1: super::StateMachine<OutputType=<SM2>::InputType>,
-        SM2: super::StateMachine<OutputType=T>,
-        <SM1>::StateType: Clone + Copy,
-        <SM2>::StateType: Clone + Copy,
+impl<SM,T> super::StateMachine for FeedbackAdd<SM,T>
+  where SM: super::StateMachine,
+        SM: super::StateMachine<InputType=T>,
+        SM: super::StateMachine<OutputType=T>,
+        <SM>::StateType: Clone + Copy,
         T: Num + Display + Clone + Copy + PartialEq,
 {
   /// `StateType`(S) = Something inside constituent SM
-  type StateType = (<SM1>::StateType,<SM2>::StateType);
+  type StateType = <SM>::StateType;
   /// `InputType`(I) = Something inside constituent SM
-  type InputType = super::DualValues<T,T>;
+  type InputType = T;
   /// `OutputType`(O) = Something inside constituent SM
-  type OutputType = <SM>::OutputType;
+  type OutputType = T;
   fn new(initial_value: Self::StateType) -> Self {
     FeedbackAdd {
-      sm1: <SM1>::new(initial_value.0),
-      sm2: <SM2>::new(initial_value.1),
+      sm: <SM>::new(initial_value),
       state: initial_value,
     }
   }
   fn start(&mut self){}
   fn get_next_state(&self, state: &Self::StateType, inp: &Self::InputType) -> Result<Self::StateType, String> {
-    let sm_next_value = self.sm.get_next_state(&state,inp)?;
-    Ok(sm_next_value)
+     let sm_next_state = self.sm.get_next_state(&state,inp)?;
+     Ok(sm_next_state)
   }
   fn get_next_values(&self, state: &Self::StateType, inp: Option<&Self::InputType>) -> Result<(Self::StateType,Option<Self::OutputType>),String> {
     match inp {
       None    => Err("The input of a FeedbackAdd StateMachine must not be None".to_string()),
       Some(inp1) => {
-        let sm_next_value = self.sm.get_next_values(&state,Some(&super::DualValues{ val1: val.val1, val2: None }))?;
+        let sm_next_value = self.sm.get_next_values(state,None)?;
         match sm_next_value.1 {
           None    => Err("The output of the Constituent Machine Feedback must not be None".to_string()),
-          Some(inp2) => Ok((sm_next_value.0,Some(inp1 + inp2)))
+          Some(inp2) => Ok((sm_next_value.0,Some(*inp1 + inp2)))
         }
       }
     }
@@ -62,7 +52,7 @@ impl<SM1,SM2,T> super::StateMachine for FeedbackAdd<SM1,SM2,T>
     match inp {
       None    => Err("The input of a FeedbackAdd StateMachine must not be None".to_string()),
       Some(val) => {
-        let outp:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ val1: val.val1, val2: None }))?;
+        let outp:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,None)?;
         if verbose {
           println!("{}{}::{{ {} {} }} FeedbackAdd {{ {} In/{} }}",
                  "  ".repeat(depth),
@@ -73,8 +63,8 @@ impl<SM1,SM2,T> super::StateMachine for FeedbackAdd<SM1,SM2,T>
                  self.verbose_output(outp.1.as_ref())
                  );
         }
-        let feedback:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,Some(&super::DualValues{ val1: val.val1, val2: outp.1 }))?;
-        let _ = self.sm.step(Some(&super::DualValues{ val1: val.val1, val2: outp.1 }),verbose,depth+1)?;
+        let feedback:(Self::StateType,Option<Self::OutputType>) = self.sm.get_next_values(&self.state,outp.1.as_ref())?;
+        let _ = self.sm.step(outp.1.as_ref(),verbose,depth+1)?;
         if verbose {
           println!("{}{}::{} {}",
                  "  ".repeat(depth),
@@ -84,7 +74,10 @@ impl<SM1,SM2,T> super::StateMachine for FeedbackAdd<SM1,SM2,T>
                  );
         }
         self.state = feedback.0;
-        Ok(feedback.1)
+        match feedback.1 {
+          Some(feedback_val) => Ok(Some(feedback_val + *val)),
+          None => Ok(Some(T::zero())),
+        }
       }
     }
   }
@@ -97,19 +90,7 @@ impl<SM1,SM2,T> super::StateMachine for FeedbackAdd<SM1,SM2,T>
   fn verbose_input(&self, inp: Option<&Self::InputType>) -> String {
     match inp {
       None       => format!("In: None"),
-      Some(inp)  =>
-        match inp.val1 {
-          None        => 
-            match inp.val2 {
-              None        => format!("In: (None,None)"),
-              Some(inp_1) => format!("In: (None,{})",inp_1),
-            }
-          Some(inp_0) => 
-            match inp.val2 {
-              None        => format!("In: ({},None)",inp_0),
-              Some(inp_1) => format!("In: ({},{})",inp_0,inp_1),
-            }
-        }
+      Some(inp)  => format!("In: {}", inp),
     }
   }
   fn verbose_output(&self, outp: Option<&Self::OutputType>) -> String {

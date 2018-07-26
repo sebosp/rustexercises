@@ -29,6 +29,7 @@ pub mod parallel;
 pub mod fork;
 pub mod feedback;
 pub mod feedback2;
+pub mod feedbackadd;
 pub trait StateMachine {
   type StateType;
   type InputType;
