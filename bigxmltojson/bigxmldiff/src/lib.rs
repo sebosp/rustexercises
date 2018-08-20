@@ -12,26 +12,27 @@
 //! Just for simplicity in the final analysis, the result is shown in JSON format.
 //! Caveats:
 //! This is not an XML validator, use xmllint --noout --validate xml1 xml2
+//! It's assumed there are no comments (`<!-- -->`) or `CDATA[ sections ]`.
 //!
 #![feature(test)] 
 extern crate test;
-extern crate crypto;
 extern crate getopts;
+extern crate crypto;
 
 pub mod config;
+pub mod chunkindex;
+use config::*;
+use chunkindex::*;
 
-use self::crypto::digest::Digest;
-use crypto::sha2::Sha256;
+use std::io::BufRead;
 use std::io::BufReader;
 use std::fs::File;
-use std::env;
 use std::path::Path;
+use std::str;
 
-// Read 128K bytes, the XMLs of our <ITEM>s are around 20Ks usually.
-const CAP: usize = 1024 * 128;
 /// `get_id` calcutes an ID based on the config in the struct 
 /// returns true if all keys are found.
-pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String>) -> bool {
+pub fn get_id(data: &String, cfg: &Config, return_key: &mut Vec<String>) -> bool {
   for cur_key in return_key.into_iter() {
     cur_key.truncate(0);
   }
@@ -45,10 +46,10 @@ pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String
       continue;
     }
     if cur_char == '>' {
-      for (ith, key) in xml_keys.iter().enumerate() {
+      for (ith, key) in cfg.xml_keys.iter().enumerate() {
         if cur_tag.eq(key) {
           return_key[ith].push_str(&cur_tag_content);
-          //println!("Found tag '{}': {} -> {}", cur_tag, cur_tag_content,return_key[ith]);
+          // println!("Found key '{}': {} -> {}", cur_tag, cur_tag_content,return_key.join("&"));
           found_keys += 1;
         }
       }
@@ -65,20 +66,16 @@ pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String
       // println!("Adding to cur_tag_content: '{}': {}", cur_char, cur_tag_content);
     }
   }
-  found_keys == xml_keys.len()
+  found_keys == cfg.xml_keys.len()
 }
 
 /// `get_xml_chunk`: Returns a chunk that matches a specific delimiter_tag contents
-/// It alters the input data to remove prelude and returns a Some(String) if the delimited chunk is
-/// found.
+/// It alters the input data to remove prelude and returns a Some(String,Offset)
+/// if the delimited chunk is found. The Offset is the start of the XML in the current chunk.
 /// It returns None if the chunk desired is not found.
-pub fn get_xml_chunk(data: &mut String, delimiter_tag: &String) -> Option<String> {
-  let mut start_tag = "<".to_owned();
-  start_tag.push_str(delimiter_tag);
-  start_tag.push_str(">");
-  let mut end_tag = "</".to_owned();
-  end_tag.push_str(delimiter_tag);
-  end_tag.push_str(">");
+pub fn get_xml_chunk(data: &mut String, cfg: &Config) -> Option<(String,usize)> {
+  let start_tag = format!("<{}>", &cfg.chunk_delimiter);
+  let end_tag = format!("</{}>", &cfg.chunk_delimiter);
   match data.find(&start_tag) {
     Some(start) => {
       match data.find(&end_tag) {
@@ -88,7 +85,7 @@ pub fn get_xml_chunk(data: &mut String, delimiter_tag: &String) -> Option<String
           // remove the ending </TAG>
           let new_end = end - start - start_tag.len();
           data.drain(new_end .. (new_end + end_tag.len()));
-          Some(data.drain(..new_end).collect())
+          Some((data.drain(..new_end).collect(),start + start_tag.len()))
         },
         None => None
       }
@@ -97,46 +94,91 @@ pub fn get_xml_chunk(data: &mut String, delimiter_tag: &String) -> Option<String
   }
 }
 
-/// `calculate_sha256_on_chunk` gets a data chunk and creates a SHA256 out of it.
-pub fn calculate_sha256_on_chunk(input: &String) -> String {
-  let mut sha = Sha256::new();
-  // Sort the lines, in case the items/lines shift.
-  let mut lines = input.lines().sort();
-  sha.input_str(lines.join("\n"));
-  sha.result_str()
-}
-
-/// `parse_data_chunk` gets a data chunk and creates a SHA256 out of it.
-/// The offset is needed to go back to the file and identify the chunk.
-pub fn parse_data_chunk(data_chunk: &mut String, offset: usize, cfg: &Config) -> (String,String) {
-  while let Some(xml_chunk) = get_xml_chunk(&mut data_chunk, cfg.delimiter_tag) {
-    (calculate_sha256_on_chunk(xml_chunk),offset)
+pub fn process_chunk(xml_chunk: &String,
+                     cfg: &Config,
+                     chunk_id: &mut Vec<String>,
+                     chunk_offset: usize,
+                     num_record: usize,
+                     chunk_index: &mut ChunkIndex
+) -> Result<(),String>{
+  if get_id(&xml_chunk,&cfg,chunk_id) {
+    println!("Record {} id: {}",num_record, chunk_id.join("&"));
+    if ! chunk_index.insert(chunk_id.join("&"),format!("{}&{}",calculate_checksum(&xml_chunk),chunk_offset)) {
+      let prev_payload = match chunk_index.search(&chunk_id.join("&")) {
+        Some(payload) => payload,
+        None => "Unset", // OOM?
+      };
+      return Err(format!("At offset {}, found existing key {} at sha&offset {}",chunk_offset,chunk_id.join("&"),prev_payload))
+    }
+  } else {
+    return Err(format!("Unable to find key for chunk at offset {}",chunk_offset))
   }
+  Ok(())
 }
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
 /// The data chunks are checked for XML chunks that can be further parsed.
-pub fn read_file_in_chunks(filename: &String, delimiter_tag: &String, xml_keys: &Vec<String>) {
-  let file = File::open(&Path::new(filename)).unwrap();
-  let mut reader = BufReader::with_capacity(CAP, file);
-  let mut xml_chunk = String::with_capacity(CAP * 2);
+pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
+  println!("Checking file {}.",&cfg.input_filename);
+  let file = File::open(Path::new(&cfg.input_filename)).unwrap();
+  let mut reader = BufReader::with_capacity(cfg.chunk_size, file);
+  let mut data_chunk = String::with_capacity(cfg.chunk_size * 2);
+  let mut num_records = 0usize;
+  let mut offset = 0usize;
+  let mut chunk_index = ChunkIndex::new(&cfg.input_filename);
+  let mut chunk_id: Vec<String> = vec![];
+  // We need to add <DELIM_TAG></DELIM_TAG> to the offset to account for proper offset.
+  // These are removed from the get_xml_chunk function.
+  // We take the first character after the opening <DELIM_TAG> as the offset of 
+  // the chunk. Later we also need to account for the 3 chars </> of the DELIM TAG:
+  let delim_key_size:usize = cfg.chunk_delimiter.len() + 3;
+  for _ in 0 .. cfg.xml_keys.len()  {
+    // Reserve memory for our key
+    chunk_id.push(String::with_capacity(64));
+  }
   loop {
     let length = {
-      let mut buffer = try!(reader.fill_buf());
+      let mut buffer = reader.fill_buf().unwrap();
       // Get one of our XML subsets from the buffer.
-      xml_chunk.push_str(buffer);
-      buffer.len();
+      let buffer_string = match str::from_utf8(buffer) {
+        Ok(v) => v,
+        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+      };
+      data_chunk += buffer_string;
+      while let Some((xml_chunk, chunk_offset)) = get_xml_chunk(&mut data_chunk, &cfg) {
+        num_records+=1;
+        offset += chunk_offset + xml_chunk.len() + delim_key_size;
+        let record_offset = offset - xml_chunk.len() - delim_key_size;
+        process_chunk(&xml_chunk,
+                      &cfg,
+                      &mut chunk_id,
+                      record_offset,
+                      num_records,
+                      &mut chunk_index)?;
+      }
+      buffer.len()
     };
     if length == 0 {
       break;
     }
     reader.consume(length);
   }
+  match chunk_index.store(&format!("{}.idx",&cfg.input_filename)) {
+    Ok(_)    => Ok(num_records),
+    Err(err) => Err(format!("Unable to write index file: {}",err)),
+  }
 }
 
-// Creates a checksum file of an XML.
-pub fn build_checksum_map(cfg: &Config) {
-  read_file_in_chunks(cfg);
+// Creates a chunk index file from an XML
+pub fn build_chunkindex_from_xml(cfg: &Config) {
+  match read_file_in_chunks(cfg) {
+    Ok(num_records) => {
+      println!("Consumed {} records", num_records);
+    },
+    Err(err) => {
+      println!("Error processing file: {}",err);
+    }
+  }
 }
 
 #[cfg(test)]
@@ -146,89 +188,155 @@ mod tests {
 
   #[test]
   fn it_gets_id() {
-    let xml_keys: Vec<String> = vec![
-      "/KEY_1".to_owned(),
-      "/KEY_2".to_owned(),
-      "/KEY_3".to_owned(),
-    ];
-    let mut xml_key: Vec<String> = vec![
+    let cfg = Config::new(
+      "KEY_1,KEY_2,KEY_3".to_owned(),
+      "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
       String::with_capacity(64),
     ];
     let test_xml = "<KEY_3>A</KEY_3><KEY_2></KEY_2><KEY_1>1</KEY_1>".to_owned();
-    assert_eq!(get_id(&test_xml,&xml_keys,&mut xml_key),true);
-    assert_eq!(xml_key.join(":"),"1::A".to_owned());
+    assert_eq!(get_id(&test_xml,&cfg,&mut chunk_id),true);
+    assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "
     
     <KEY_1>1</KEY_1>
       <KEY_3>A</KEY_3>
       <KEY_2></KEY_2>".to_owned();
-    assert_eq!(get_id(&test_xml,&xml_keys,&mut xml_key),true);
-    assert_eq!(xml_key.join(":"),"1::A".to_owned());
+    assert_eq!(get_id(&test_xml,&cfg,&mut chunk_id),true);
+    assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "NotAnXML".to_owned();
-    assert_eq!(get_id(&test_xml,&xml_keys,&mut xml_key),false);
+    assert_eq!(get_id(&test_xml,&cfg,&mut chunk_id),false);
     let test_xml = "<KEY_3>A</KEY_3>".to_owned();
-    assert_eq!(get_id(&test_xml,&xml_keys,&mut xml_key),false);
+    assert_eq!(get_id(&test_xml,&cfg,&mut chunk_id),false);
+    let cfg = Config::new(
+      "li".to_owned(),
+      "div".to_owned(),
+      "MEMORY".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    let mut html_chunk_id: Vec<String> = vec![
+      String::with_capacity(64),
+    ];
+    let test_html = "<html><head></head> <body> <div><li>1</li></div> </body> </html>".to_owned();
+    assert_eq!(get_id(&test_html,&cfg,&mut html_chunk_id),true);
+    assert_eq!(html_chunk_id.join("&"),"1".to_owned());
   }
   #[test]
   fn it_gets_chunks() {
+    let cfg = Config::new(
+        "INVALID".to_owned(),
+        "IMPORTANT_DATA".to_owned(),
+        "MEMORY".to_owned(),
+        50usize,
+        "test".to_owned(),
+    );
     let mut test_xml = "<PRELUDE_TAGS></PRELUDE_TAGS>
       <IMPORTANT_DATA><INTERNAL_DATA>A</INTERNAL_DATA></IMPORTANT_DATA>
       <IRRELEVANT_DATA>1</IRRELEVANTDATA>
       <IMPORTANT_DATA>".to_owned();
-    assert_eq!(get_xml_chunk(&mut test_xml, &"IMPORTANT_DATA".to_owned()),Some("<INTERNAL_DATA>A</INTERNAL_DATA>".to_owned()));
+    assert_eq!(get_xml_chunk(&mut test_xml, &cfg),Some(("<INTERNAL_DATA>A</INTERNAL_DATA>".to_owned(),52usize)));
     assert_eq!(test_xml,"
       <IRRELEVANT_DATA>1</IRRELEVANTDATA>
       <IMPORTANT_DATA>".to_owned());
     // There is not enough data left in this XML for a complete chunk:
-    assert_eq!(get_xml_chunk(&mut test_xml, &"IMPORTANT_DATA".to_owned()),None);
+    assert_eq!(get_xml_chunk(&mut test_xml, &cfg),None);
     // Add more data that completes the partial chunk and contains a new chunk:
     test_xml.push_str("<INTERNAL_DATA>B</INTERNAL_DATA></IMPORTANT_DATA><IMPORTANT_DATA><INTERNAL_DATA>C</INTERNAL_DATA></IMPORTANT_DATA></LAST_TAG>");
-    assert_eq!(get_xml_chunk(&mut test_xml, &"IMPORTANT_DATA".to_owned()),Some("<INTERNAL_DATA>B</INTERNAL_DATA>".to_owned()));
+    assert_eq!(get_xml_chunk(&mut test_xml, &cfg),Some(("<INTERNAL_DATA>B</INTERNAL_DATA>".to_owned(),65usize)));
     assert_eq!(test_xml,"<IMPORTANT_DATA><INTERNAL_DATA>C</INTERNAL_DATA></IMPORTANT_DATA></LAST_TAG>".to_owned());
-    assert_eq!(get_xml_chunk(&mut test_xml, &"IMPORTANT_DATA".to_owned()),Some("<INTERNAL_DATA>C</INTERNAL_DATA>".to_owned()));
+    assert_eq!(get_xml_chunk(&mut test_xml, &cfg),Some(("<INTERNAL_DATA>C</INTERNAL_DATA>".to_owned(),16usize)));
     assert_eq!(test_xml,"</LAST_TAG>".to_owned());
+    let cfg = Config::new(
+      "li".to_owned(),
+      "div".to_owned(),
+      "MEMORY".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    let mut test_html = "<html><head></head> <body> <div><li>1</li></div> <div><li>2</li></div> <div><li>3</li></div> </body> </html>".to_owned();
+    assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>1</li>".to_owned(),32usize)));
+    assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>2</li>".to_owned(),6usize)));
+    assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>3</li>".to_owned(),6usize)));
   }
   #[test]
-  fn it_gets_sha256() {
-    let test_xml = "<KEY_3>A</KEY_3><KEY_2></KEY_2><KEY_1>1</KEY_1>".to_owned();
-    assert_eq!(calculate_sha256_on_chunk(&test_xml),calculate_sha256_on_chunk(&test_xml));
+  fn it_adds_chunks() {
+    let cfg = Config::new(
+      "li".to_owned(),
+      "div".to_owned(),
+      "tests/test1-dup.xml".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    // There are 2 duplicate IDs in chunks in this file. in the same line.
+    // <div><li>1</li></div><div><li>1</li></div>
+    // 01234^67890123456789012345^7890
+    let duplicate_id_tag = "<li>1</li>".to_owned();
+    let id_sha = calculate_checksum(&duplicate_id_tag);
+    assert_eq!(
+      read_file_in_chunks(&cfg),
+      Err(format!("At offset {}, found existing key {} at sha&offset {}&{}",26usize,1,id_sha,5usize))
+    );
   }
   #[bench]
   fn bench_get_id(b: &mut Bencher) {
-    let xml_keys: Vec<String> = vec![
-      "/KEY_1".to_owned(),
-      "/KEY_2".to_owned(),
-      "/KEY_3".to_owned(),
-    ];
-    let mut xml_key: Vec<String> = vec![
+    let cfg = Config::new(
+      "KEY_1,KEY_2,KEY_3".to_owned(),
+      "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
       String::with_capacity(64),
     ];
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
-      get_id(&test_xml,&xml_keys,&mut xml_key)
+      get_id(&test_xml,&cfg,&mut chunk_id)
     });
    }
   #[bench]
   fn bench_get_id_blackbox(b: &mut Bencher) {
-    let xml_keys: Vec<String> = vec![
-      "/KEY_1".to_owned(),
-      "/KEY_2".to_owned(),
-      "/KEY_3".to_owned(),
-    ];
-    let mut xml_key: Vec<String> = vec![
+    let cfg = Config::new(
+      "KEY_1,KEY_2,KEY_3".to_owned(),
+      "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
       String::with_capacity(64),
     ];
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
-      for _ in 1..10000 {
-        black_box(get_id(&test_xml,&xml_keys,&mut xml_key));
+      for _ in 1..1000 {
+        black_box(get_id(&test_xml,&cfg,&mut chunk_id));
       }
     });
    }
+  #[bench]
+  fn bench_read_smallfile_smallchunks(b: &mut Bencher) {
+    let cfg = Config::new(
+      "li".to_owned(),
+      "div".to_owned(),
+      "tests/test1.xml".to_owned(),
+      10usize,
+      "checksum".to_owned(),
+    );
+    b.iter(|| {
+      for _ in 1..1000 {
+        black_box(read_file_in_chunks(&cfg).unwrap());
+      }
+    });
+  }
 }
