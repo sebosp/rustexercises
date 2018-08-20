@@ -15,7 +15,21 @@ pub struct Config {
 }
 
 impl Config {
-  pub fn new(args: std::env::Args) -> Result<Config, &'static str> {
+  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String) -> Config {
+    let mut xml_keys:Vec<String> = vec![];
+    for key in keys.split(",") {
+      // Prepend an / for the closing tag
+      xml_keys.push(format!("/{}",key));
+    }
+    Config{
+        xml_keys: xml_keys,
+        chunk_delimiter: chunk_delimiter,
+        input_filename: input_filename,
+        chunk_size: chunk_size * 1024,
+        mode: mode,
+    }
+  }
+  pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
     let args: Vec<String> = args.collect();
 
     let mut opts = Options::new();
@@ -32,19 +46,13 @@ impl Config {
     };
 
     let mut mode = "help".to_owned(); // Default val
-    let mut xml_keys:Vec<String> = vec![];
+    let mut xml_keystring = String::new();
     let mut chunk_delimiter = String::new();
     let mut input_filename = String::new();
     let mut chunk_size = 0usize;
 
     if matches.opt_present("h") {
-      return Ok(Config{
-        xml_keys: xml_keys,
-        chunk_delimiter: chunk_delimiter,
-        input_filename: input_filename,
-        chunk_size: chunk_size,
-        mode: mode,
-      });
+      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode));
     }
     match matches.opt_str("m") {
       Some(opt_mode) => {
@@ -57,11 +65,7 @@ impl Config {
       None => return Err("Missing XML Chunk delimiter"),
     }
     match matches.opt_str("m") {
-      Some(keys) => {
-        for key in keys.split(",") {
-          xml_keys.push(key.clone().to_owned());
-        }
-      },
+      Some(keys) => xml_keystring = keys,
       None => return Err("Missing xml key fields"),
     }
     match matches.opt_str("i") {
@@ -75,16 +79,10 @@ impl Config {
       None => return Err("Missing -i input file parameter"),
     };
     chunk_size = match matches.opt_str("s") {
-      Some(size) => (1024 * size.parse::<usize>().unwrap()) as usize,
-      None => (1024 * 128) as usize,
+      Some(size) => size.parse::<usize>().unwrap(),
+      None => 128usize,
     };
-    Ok(Config{
-      xml_keys: xml_keys,
-      chunk_delimiter: chunk_delimiter,
-      input_filename: input_filename,
-      chunk_size: chunk_size,
-      mode: mode.to_string(),
-    })
+    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode))
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
