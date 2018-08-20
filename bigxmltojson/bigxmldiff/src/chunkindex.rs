@@ -1,10 +1,14 @@
 //! `ChunkIndex`
 //! Provides an indexed checksum collection for chunks of data
+//!
 
 extern crate crypto;
+extern crate std;
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::prelude::*;
 
 pub struct Chunk {
   pub chunk_id: String,
@@ -48,6 +52,13 @@ impl ChunkIndex {
   }
   pub fn search(&self, chunk_id: &String) -> Option<&String> {
     self.chunks.get(chunk_id)
+  }
+  pub fn store(&self, file: &String) -> std::io::Result<()> {
+    let mut file = File::create(file)?;
+    for (chunk_id, payload) in &self.chunks {
+      file.write_all(format!("{}&{}", chunk_id, payload).as_bytes())?;
+    }
+    Ok(())
   }
 }
 /// `calculate_checksum` gets a data chunk and creates a SHA256 out of it.
