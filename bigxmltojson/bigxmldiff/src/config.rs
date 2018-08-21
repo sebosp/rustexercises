@@ -12,10 +12,11 @@ pub struct Config {
   pub xml_keys: Vec<String>,
   pub chunk_delimiter: String,
   pub chunk_size: usize,
+  pub concurrency: i8,
 }
 
 impl Config {
-  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String) -> Config {
+  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String, concurrency: i8) -> Config {
     let mut xml_keys:Vec<String> = vec![];
     for key in keys.split(",") {
       // Prepend an / for the closing tag
@@ -27,6 +28,7 @@ impl Config {
         input_filename: input_filename,
         chunk_size: chunk_size * 1024,
         mode: mode,
+        concurrency: concurrency,
     }
   }
   pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
@@ -40,6 +42,7 @@ impl Config {
     opts.optopt("d", "delimiter", "XML Chunk Delimiter", "GROUPINGTAG");
     opts.optopt("s", "size", "File read size", "SIZE");
     opts.optopt("k", "keyFields", "Comma separated list of tags in the XML Chunk that will be use to set a unique ID", "TAG1,TAG2,TAG3");
+    opts.optopt("c", "concurrency", "Run the parsing in separate threads", "SIZE");
     let matches = match opts.parse(&args[..]) {
       Ok(m) => { m }
       Err(f) => { panic!(f.to_string()) }
@@ -50,9 +53,10 @@ impl Config {
     let mut chunk_delimiter = String::new();
     let mut input_filename = String::new();
     let mut chunk_size = 0usize;
+    let mut concurrency = 1i8;
 
     if matches.opt_present("h") {
-      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode));
+      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency));
     }
     match matches.opt_str("m") {
       Some(opt_mode) => {
@@ -82,7 +86,11 @@ impl Config {
       Some(size) => size.parse::<usize>().unwrap(),
       None => 128usize,
     };
-    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode))
+    concurrency = match matches.opt_str("c") {
+      Some(size) => size.parse::<i8>().unwrap(),
+      None => 10i8,
+    };
+    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency))
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
@@ -98,6 +106,7 @@ impl Config {
     println!("-o: outputFile");
     println!("-s: Read file in these many bytes");
     println!("-d: delimiter: XML Chunk Delimiter");
+    println!("-c: concurrency: Use N threads for parsing");
     println!("-k: keyFields: Comma separated list of tags in the XML Chunk that will be use to set a unique ID");
   }
   /// Returns the number of records or the error message
