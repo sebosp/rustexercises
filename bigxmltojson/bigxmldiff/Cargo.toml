@@ -7,3 +7,5 @@ authors = ["Seb Ospina <kraige@gmail.com>"]
 rust-crypto = "0.2.36"
 getopts = "0.2"
 zmq = "0.8"
+rand = "0.5.5"
+
