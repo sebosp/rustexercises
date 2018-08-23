@@ -13,10 +13,11 @@ pub struct Config {
   pub chunk_delimiter: String,
   pub chunk_size: usize,
   pub concurrency: i8,
+  pub bind_address: String,
 }
 
 impl Config {
-  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String, concurrency: i8) -> Config {
+  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String) -> Config {
     let mut xml_keys:Vec<String> = vec![];
     for key in keys.split(",") {
       // Prepend an / for the closing tag
@@ -29,6 +30,7 @@ impl Config {
         chunk_size: chunk_size * 1024,
         mode: mode,
         concurrency: concurrency,
+        bind_address: bind_address,
     }
   }
   pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
@@ -41,6 +43,7 @@ impl Config {
     opts.optopt("o", "outputFile", "Output File ", "FILE");
     opts.optopt("d", "delimiter", "XML Chunk Delimiter", "GROUPINGTAG");
     opts.optopt("s", "size", "File read size", "SIZE");
+    opts.optopt("b", "bindAddress", "Bind to this address", "bind socket");
     opts.optopt("k", "keyFields", "Comma separated list of tags in the XML Chunk that will be use to set a unique ID", "TAG1,TAG2,TAG3");
     opts.optopt("c", "concurrency", "Run the parsing in separate threads", "SIZE");
     let matches = match opts.parse(&args[..]) {
@@ -50,13 +53,14 @@ impl Config {
 
     let mut mode = "help".to_owned(); // Default val
     let mut xml_keystring = String::new();
+    let mut bind_address = String::new();
     let mut chunk_delimiter = String::new();
     let mut input_filename = String::new();
     let mut chunk_size = 0usize;
     let mut concurrency = 1i8;
 
     if matches.opt_present("h") {
-      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency));
+      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency,bind_address));
     }
     match matches.opt_str("m") {
       Some(opt_mode) => {
@@ -90,12 +94,19 @@ impl Config {
       Some(size) => size.parse::<i8>().unwrap(),
       None => 10i8,
     };
-    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency))
+    match matches.opt_str("b") {
+      Some(address) => {
+        bind_address = address.to_owned();
+      },
+      None => bind_address = "tcp://*:5555".to_owned(),
+    }
+    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency,bind_address))
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
     println!("Usage: -m MODE -i FILE -k TAGID1,TAGID2,TAGID3 -d CHUNKDELIMITER [options]");
     println!("-h: help print this help menu");
+    println!("-b: bind address");
     println!("-m: operation mode:");
     println!("    - checksum: Creates the chunk indexes of a file");
     println!("    - validate: Validates the chunk indexes file integrity");

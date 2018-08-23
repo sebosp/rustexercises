@@ -31,14 +31,13 @@ use std::io::BufReader;
 use std::fs::File;
 use std::path::Path;
 use std::str;
-use rand::Rng;
 use zmq::SNDMORE;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::thread;
 
 /// `hex` transforms a Vector of u8 into a hex string.
 fn hex(bytes: &[u8]) -> String {
-      bytes.iter().map(|x| format!("{:02x}", x)).collect::<Vec<_>>().join("")
+  bytes.iter().map(|x| format!("{:02x}", x)).collect::<Vec<_>>().join("")
 }
 
 /// `get_id` calcutes an ID based on the config in the struct 
@@ -123,13 +122,12 @@ pub fn process_chunk(xml_chunk: &String,
   }
 }
 
-fn worker_task(xml_keys: Vec<String>) {
+fn worker_task(xml_keys: Vec<String>, connect_endpoint: String) {
   let context = zmq::Context::new();
   let worker = context.socket(zmq::DEALER).unwrap();
-  let mut rng = rand::thread_rng();
   let identity: Vec<_> = (0..10).map(|_| rand::random::<u8>()).collect();
   worker.set_identity(&identity).expect("failed setting client id");
-  worker.connect("tcp://localhost:5671").expect("failed connecting client");
+  worker.connect(&connect_endpoint.replace("*","localhost")).expect("failed connecting client");
 
   let mut total = 0;
   let mut chunk_id: Vec<String> = vec![];
@@ -138,8 +136,9 @@ fn worker_task(xml_keys: Vec<String>) {
     chunk_id.push(String::with_capacity(64));
   }
   // Tell the broker we're ready for work
-  worker.send(b"", SNDMORE).unwrap();
+  worker.send(b"", SNDMORE).unwrap(); // Envelope
   worker.send(b"READYFORWORK", 0).unwrap();
+  println!("Worker ID: {:?}",&identity);
   loop {
 
     // Get workload from broker
@@ -156,14 +155,44 @@ fn worker_task(xml_keys: Vec<String>) {
                   &mut chunk_id,
                   &xml_keys,
                   record_offset,
-                  num_record);
+                  num_record).unwrap();
     worker.send(b"", SNDMORE).unwrap();
     worker.send(b"RESULT", SNDMORE).unwrap();
-    worker.send(processed_id, SNDMORE).unwrap();
-    worker.send(processed_checksum, SNDMORE).unwrap();
-    worker.send(processed_offset, 0).unwrap();
+    worker.send(&processed_id.into_bytes(), SNDMORE).unwrap();
+    worker.send(&processed_checksum.to_string().into_bytes(), SNDMORE).unwrap();
+    worker.send(&processed_offset.to_string().into_bytes(), 0).unwrap();
     total += 1;
   }
+}
+pub fn process_response(broker: &zmq::Socket, available_workers: usize, chunk_index: &mut ChunkIndex) -> Result<usize,String> {
+  let worker_id = broker.recv_bytes(0).unwrap(); // Envelope
+  println!("Got worker id: {:?}",worker_id);
+  broker.recv_bytes(0).unwrap(); // Envelope
+  let response_type_raw = &broker.recv_bytes(0).unwrap();
+  let response_type = str::from_utf8(response_type_raw).unwrap();
+  println!("response_type: {:?}",response_type);
+  if response_type == "READYFORWORK" {
+    return Ok(available_workers + 1);
+  }
+  let processed_id_raw = &broker.recv_bytes(0).unwrap();
+  let processed_id = str::from_utf8(processed_id_raw).unwrap();
+  println!("processed_id: {:?}",processed_id);
+  let processed_checksum_raw = &broker.recv_bytes(0).unwrap();
+  println!("processed_checksum: {:?}",processed_checksum_raw);
+  let processed_checksum = str::from_utf8(processed_checksum_raw).unwrap();
+  let processed_offset_raw = &broker.recv_bytes(0).unwrap();
+  let processed_offset = str::from_utf8(processed_offset_raw).unwrap()
+    .parse::<usize>()
+    .expect("Could not parse processed_offset");
+  println!("Got response from worked thread");
+  if ! chunk_index.insert(processed_id.clone().to_string(),format!("{}&{}", processed_checksum, processed_offset)) {
+    let prev_payload = match chunk_index.search(&processed_id.to_string()) {
+      Some(payload) => payload,
+      None => "Unset", // OOM?
+    };
+    return Err(format!("At offset {}, found existing key {} at sha&offset {}",processed_offset,processed_id,prev_payload))
+  }
+  Ok(available_workers)
 }
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
@@ -184,16 +213,21 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
   // ZMQ setup
   let context = zmq::Context::new();
   let broker = context.socket(zmq::ROUTER).unwrap();
-  assert!(broker.bind("tcp://*:5671").is_ok());
+  println!("Binding to: {}",&cfg.bind_address);
+  assert!(broker.bind(&cfg.bind_address).is_ok());
   let mut thread_pool = Vec::new();
   for _ in 0 .. cfg.concurrency {
+    let xml_keys = cfg.xml_keys.clone();
+    let connect_endpoint = cfg.bind_address.clone();
     let child = thread::spawn(move || {
-      worker_task(cfg.xml_keys.clone());
+      worker_task(xml_keys,connect_endpoint);
     });
     thread_pool.push(child);
   }
+  println!("Starting {} threads",cfg.concurrency);
   let start_time = Instant::now();
-  let concurrent_requests = 0;
+  let mut concurrent_requests = 0usize;
+  let mut available_workers = 0;
   loop {
     let length = {
       let mut buffer = reader.fill_buf().unwrap();
@@ -205,34 +239,26 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
       data_chunk += buffer_string;
       while let Some((xml_chunk, chunk_offset)) = get_xml_chunk(&mut data_chunk, &cfg) {
         num_records+=1;
-        concurrent_requests+=1;
         offset += chunk_offset + xml_chunk.len() + delim_key_size;
         let record_offset = offset - xml_chunk.len() - delim_key_size;
 
-        if concurrent_requests < cfg.concurrency {
+        if concurrent_requests < cfg.concurrency as usize {
+          concurrent_requests+=1;
+          println!("Sending request to worker thread");
           broker.send(b"", SNDMORE).unwrap();
           broker.send(b"REQUEST", SNDMORE).unwrap();
-          broker.send(xml_chunk, SNDMORE).unwrap();
-          broker.send(record_offset.to_string(), SNDMORE).unwrap();
-          broker.send(num_records.to_string(), 0).unwrap();
+          broker.send(&xml_chunk.into_bytes(), SNDMORE).unwrap();
+          broker.send(&record_offset.to_string().into_bytes(), SNDMORE).unwrap();
+          broker.send(&num_records.to_string().into_bytes(), 0).unwrap();
+          println!("Sent request to worker thread");
         }
         loop {
           if broker.poll(zmq::POLLIN, 1000).expect("client failed polling") > 0 {
+            available_workers = process_response(&broker,available_workers,&mut chunk_index)?;
             concurrent_requests -= 1;
-            broker.recv_bytes(0).unwrap(); // Envelope
-            let response_type = broker.recv_bytes(0).unwrap().to_string();
-            let processed_id = broker.recv_bytes(0).unwrap().to_string();
-            let processed_checksum = broker.recv_bytes(0).unwrap().to_string();
-            let processed_offset = broker.recv_bytes(0).unwrap().parse::<usize>();
-            if ! chunk_index.insert(processed_id.clone(),format!("{}&{}", processed_checksum, processed_offset)) {
-              let prev_payload = match chunk_index.search(&processed_id) {
-                Some(payload) => payload,
-                None => "Unset", // OOM?
-              };
-              return Err(format!("At offset {}, found existing key {} at sha&offset {}",processed_offset,processed_id,prev_payload))
-            }
           }
-          if concurrent_requests < cfg.concurrency {
+          if concurrent_requests / 2 <= available_workers {
+            break;
           }
         }
       }
@@ -243,9 +269,22 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
     }
     reader.consume(length);
   }
+  let mut max_retries = 100_000;
+  loop {
+   println!("Polling.");
+   if concurrent_requests == 0 || max_retries == 0{
+     break;
+   }
+   if broker.poll(zmq::POLLIN, 1000).expect("client failed polling") > 0 {
+     available_workers = process_response(&broker,available_workers,&mut chunk_index)?;
+     concurrent_requests -= 1;
+   }
+   max_retries -= 1;
+  }
   for _ in 0 .. cfg.concurrency {
     broker.send(b"ENDOFWORKLOAD", 0).unwrap();
   }
+  println!("Finished after {}", start_time.elapsed().as_secs());
   match chunk_index.store(&format!("{}.idx",&cfg.input_filename)) {
     Ok(_)    => Ok(num_records),
     Err(err) => Err(format!("Unable to write index file: {}",err)),
@@ -278,6 +317,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5555".to_owned(),
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -305,6 +345,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5555".to_owned(),
     );
     let mut html_chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -322,6 +363,7 @@ mod tests {
         50usize,
         "test".to_owned(),
         10i8,
+        "tcp://*:5555".to_owned(),
     );
     let mut test_xml = "<PRELUDE_TAGS></PRELUDE_TAGS>
       <IMPORTANT_DATA><INTERNAL_DATA>A</INTERNAL_DATA></IMPORTANT_DATA>
@@ -346,6 +388,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5555".to_owned(),
     );
     let mut test_html = "<html><head></head> <body> <div><li>1</li></div> <div><li>2</li></div> <div><li>3</li></div> </body> </html>".to_owned();
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>1</li>".to_owned(),32usize)));
@@ -361,6 +404,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5671".to_owned(),
     );
     // There are 2 duplicate IDs in chunks in this file. in the same line.
     // <div><li>1</li></div><div><li>1</li></div>
@@ -381,6 +425,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5555".to_owned(),
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -401,6 +446,7 @@ mod tests {
       10usize,
       "checksum".to_owned(),
       10i8,
+      "tcp://*:5555".to_owned(),
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -414,7 +460,9 @@ mod tests {
       }
     });
    }
+  // Need to find another way to bench this. read_file_in_chunks binds to a port.
   #[bench]
+  #[ignore]
   fn bench_read_smallfile_smallchunks(b: &mut Bencher) {
     let cfg = Config::new(
       "li".to_owned(),
@@ -422,7 +470,8 @@ mod tests {
       "tests/test1.xml".to_owned(),
       10usize,
       "checksum".to_owned(),
-      10i8,
+      1i8,
+      "tcp://*:5555".to_owned(),
     );
     b.iter(|| {
       for _ in 1..1000 {
