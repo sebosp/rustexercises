@@ -42,7 +42,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// `get_id` calcutes an ID based on the config in the struct 
 /// returns true if all keys are found.
-pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String>) -> bool {
+pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String>, worker_id_string: &String, verbosity: i8) -> bool {
   for cur_key in return_key.into_iter() {
     cur_key.truncate(0);
   }
@@ -59,7 +59,9 @@ pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String
       for (ith, key) in xml_keys.iter().enumerate() {
         if cur_tag.eq(key) {
           return_key[ith].push_str(&cur_tag_content);
-          // println!("Found key '{}': {} -> {}", cur_tag, cur_tag_content,return_key.join("&"));
+          if verbosity > 3 {
+            println!("WORKER[{}] Found key '{}': {} -> {}", worker_id_string, cur_tag, cur_tag_content,return_key.join("&"));
+          }
           found_keys += 1;
         }
       }
@@ -70,10 +72,14 @@ pub fn get_id(data: &String, xml_keys: &Vec<String>, return_key: &mut Vec<String
     }
     if inside_tag {
       cur_tag.push(cur_char);
-      // println!("Adding to cur_tag: '{}': {}", cur_char, cur_tag);
+      if verbosity > 3 {
+        println!("WORKER[{}] Adding to cur_tag: '{}': {}", worker_id_string, cur_char, cur_tag);
+      }
     } else {
       cur_tag_content.push(cur_char);
-      // println!("Adding to cur_tag_content: '{}': {}", cur_char, cur_tag_content);
+      if verbosity > 3 {
+        println!("WORKER[{}] Adding to cur_tag_content: '{}': {}", worker_id_string, cur_char, cur_tag_content);
+      }
     }
   }
   found_keys == xml_keys.len()
@@ -112,17 +118,28 @@ pub fn process_chunk(xml_chunk: &String,
                      xml_keys: &Vec<String>,
                      record_offset: usize,
                      num_record: usize,
+                     worker_id_string: String,
+                     verbosity: i8,
 ) -> Result<(String,String,usize),String>{
-  if get_id(&xml_chunk,xml_keys,chunk_id) {
+  if get_id(&xml_chunk,xml_keys,chunk_id, &worker_id_string,verbosity) {
     let checksum = calculate_checksum(&xml_chunk);
-    println!("Record {} id: {} shasum {}",num_record, chunk_id.join("&"),checksum);
+    if verbosity > 2 {
+      println!("WORKER[{}] Record {} id: {} shasum {}", worker_id_string,num_record, chunk_id.join("&"),checksum);
+    }
     Ok((chunk_id.join("&"),checksum,record_offset))
   } else {
     return Err(format!("Unable to find key for chunk at offset {}",record_offset))
   }
 }
 
-fn worker_task(xml_keys: Vec<String>, connect_endpoint: String) {
+pub fn to_string(socket: &zmq::Socket) -> Result<String,String> {
+  let data = socket
+    .recv_string(0)
+    .expect("Unable to recv data")
+    .expect("Unable to transform to string");
+  Ok(data)
+}
+fn worker_task(xml_keys: Vec<String>, connect_endpoint: String, verbosity: i8) {
   let context = zmq::Context::new();
   let worker = context.socket(zmq::DEALER).unwrap();
   let identity: Vec<_> = (0..10).map(|_| rand::random::<u8>()).collect();
@@ -136,26 +153,38 @@ fn worker_task(xml_keys: Vec<String>, connect_endpoint: String) {
     chunk_id.push(String::with_capacity(64));
   }
   // Tell the broker we're ready for work
+  if verbosity > 0 {
+    println!("WORKER[{}] Registering to broker",hex(&identity));
+  }
   worker.send(b"", SNDMORE).unwrap(); // Envelope
   worker.send(b"READYFORWORK", 0).unwrap();
   loop {
 
-    // Get workload from broker
+    // Get worktype from broker
     worker.recv_bytes(0).unwrap();  // envelope delimiter
-    let workload = worker.recv_string(0).unwrap().unwrap();
-    if workload == "ENDOFWORKLOAD" {
-      println!("Worker {} completed {} tasks", hex(&identity), total);
+    let worktype = worker.recv_string(0).unwrap().unwrap();
+    if verbosity > 1 {
+      println!("WORKER[{}] Got worktype: {:?}",hex(&identity),worktype);
+    }
+    if worktype == "ENDOFWORKLOAD" {
+      if verbosity > 0 {
+        println!("WORKER[{}] completed {} tasks", hex(&identity), total);
+      }
       break;
     }
-    let xml_chunk = worker.recv_string(0).unwrap().unwrap();
-    println!("WORKER: Got xml_chunk: {:?}",xml_chunk);
-    let record_offset = worker.recv_string(0).unwrap().unwrap().parse::<usize>().unwrap();
-    let num_record = worker.recv_string(0).unwrap().unwrap().parse::<usize>().unwrap();
+    let xml_chunk = worker.recv_string(0).unwrap().expect("Unable to receive xml_chunk");
+    if verbosity > 2 {
+      println!("WORKER[{}] Got xml_chunk: {:?}",hex(&identity),xml_chunk);
+    }
+    let record_offset = worker.recv_string(0).unwrap().unwrap().parse::<usize>().expect("Unable to parse usize");
+    let num_record = worker.recv_string(0).unwrap().unwrap().parse::<usize>().expect("Unable to parse usize");
     let (processed_id, processed_checksum, processed_offset) = process_chunk(&xml_chunk,
                   &mut chunk_id,
                   &xml_keys,
                   record_offset,
-                  num_record).unwrap();
+                  num_record,
+                  hex(&identity),
+                  verbosity).expect("WORKER Unable to process chunk");
     worker.send(b"", SNDMORE).unwrap();
     worker.send(b"RESULT", SNDMORE).unwrap();
     worker.send(&processed_id.into_bytes(), SNDMORE).unwrap();
@@ -164,24 +193,32 @@ fn worker_task(xml_keys: Vec<String>, connect_endpoint: String) {
     total += 1;
   }
 }
-pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex) -> Result<i8,String> {
+/// `process_response` checks for more data from the worker.
+/// It returns the worker increase.
+/// If a worker replies with "READYFORWORK", we increment the amount of workers.
+pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex, verbosity: i8) -> Result<i8,String> {
   let response_type_raw = &broker.recv_bytes(0).unwrap();
   let response_type = str::from_utf8(response_type_raw).unwrap();
-  println!("BROKER: response_type: {:?}",response_type);
+  if verbosity > 2 {
+    println!("BROKER: response_type: {:?}",response_type);
+  }
   if response_type == "READYFORWORK" {
     return Ok(1);
   }
   let processed_id_raw = &broker.recv_bytes(0).unwrap();
   let processed_id = str::from_utf8(processed_id_raw).unwrap();
-  println!("BROKER: got processed_id: {:?}",processed_id);
+  if verbosity > 2 {
+    println!("BROKER: got processed_id: {:?}",processed_id);
+  }
   let processed_checksum_raw = &broker.recv_bytes(0).unwrap();
-  println!("processed_checksum: {:?}",processed_checksum_raw);
   let processed_checksum = str::from_utf8(processed_checksum_raw).unwrap();
   let processed_offset_raw = &broker.recv_bytes(0).unwrap();
   let processed_offset = str::from_utf8(processed_offset_raw).unwrap()
     .parse::<usize>()
     .expect("Could not parse processed_offset");
-  println!("BROKER: Inserting to chunk_index");
+  if verbosity > 1 {
+    println!("BROKER: Inserting to chunk_index");
+  }
   if ! chunk_index.insert(processed_id.clone().to_string(),format!("{}&{}", processed_checksum, processed_offset)) {
     let prev_payload = match chunk_index.search(&processed_id.to_string()) {
       Some(payload) => payload,
@@ -189,7 +226,7 @@ pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex) -> R
     };
     return Err(format!("At offset {}, found existing key {} at sha&offset {}",processed_offset,processed_id,prev_payload))
   }
-  Ok(-1)
+  Ok(0)
 }
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
@@ -216,8 +253,9 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
   for _ in 0 .. cfg.concurrency {
     let xml_keys = cfg.xml_keys.clone();
     let connect_endpoint = cfg.bind_address.clone();
+    let verbosity = cfg.verbosity.clone();
     let child = thread::spawn(move || {
-      worker_task(xml_keys,connect_endpoint);
+      worker_task(xml_keys,connect_endpoint,verbosity);
     });
     thread_pool.push(child);
   }
@@ -227,7 +265,7 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
   let mut event_items = [
     broker.as_poll_item(zmq::POLLIN),
   ];
-  let mut max_retries = 100_000;
+  let mut max_retries:i64;
   loop {
     let length = {
       let mut buffer = reader.fill_buf().unwrap();
@@ -244,31 +282,38 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
 
         max_retries = 100_000;
         loop {
-          zmq::poll(&mut event_items, 1000).expect("client failed polling");
-          if ! event_items[0].is_readable() {
-            max_retries -= 1;
-            continue;
+          zmq::poll(&mut event_items, 1000000).expect("client failed polling");
+          if event_items[0].is_readable() {
+            break;
           }
           if max_retries < 1 {
             break;
           }
         }
-        if max_retries == 0 {
+        if max_retries < 1 {
           return Err("Max retries exceeded waiting for clients to return work".to_owned());
         }
         let worker_id = broker.recv_bytes(0).unwrap(); // ID frame
-        println!("BROKER: Got worker id: {:?}",worker_id);
-        concurrent_requests += process_response(&broker,&mut chunk_index)?;
+        broker.recv_bytes(0).unwrap(); // Delimiter frame
+        if cfg.verbosity > 0 {
+          println!("BROKER: Got worker id: {}",hex(&worker_id));
+        }
+        concurrent_requests += process_response(&broker,&mut chunk_index,cfg.verbosity)?;
         broker.send(&worker_id, SNDMORE).unwrap();
         broker.send(b"", SNDMORE).unwrap();
-        broker.send(b"REQUEST", SNDMORE).unwrap();
+        broker.send(b"PROCESS_CHUNK", SNDMORE).unwrap();
         broker.send(&xml_chunk.into_bytes(), SNDMORE).unwrap();
         broker.send(&record_offset.to_string().into_bytes(), SNDMORE).unwrap();
         broker.send(&num_records.to_string().into_bytes(), 0).unwrap();
-        println!("Sent request to worker thread");
+        if cfg.verbosity > 2 {
+          println!("BROKER: Sent request to worker thread");
+        }
         if concurrent_requests / 2 <= cfg.concurrency {
           break;
         }
+      }
+      if num_records % 250 == 0 {
+        println!("BROKER: Processed {} in {} seconds",num_records,start_time.elapsed().as_secs());
       }
       buffer.len()
     };
@@ -277,6 +322,7 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
     }
     reader.consume(length);
   }
+  max_retries = 100_000;
   loop {
    if concurrent_requests == 0 || max_retries == 0 {
      break;
@@ -284,13 +330,18 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
    //if broker.poll(zmq::POLLIN, 1000).expect("client failed polling") > 0 {
    zmq::poll(&mut event_items, 1000).expect("client failed polling");
    if event_items[0].is_readable() {
-     println!("Pollin.");
-     concurrent_requests += process_response(&broker,&mut chunk_index)?;
+     let worker_id = broker.recv_bytes(0).unwrap(); // ID frame
+     broker.recv_bytes(0).unwrap(); // Delimiter frame
+     if cfg.verbosity > 2 {
+       println!("BROKER: Got worker id: {}",hex(&worker_id));
+     }
+     concurrent_requests += process_response(&broker,&mut chunk_index,cfg.verbosity)?;
+     broker.send(&worker_id, SNDMORE).unwrap();
+     broker.send(b"", SNDMORE).unwrap();
+     broker.send(b"ENDOFWORKLOAD", SNDMORE).unwrap();
+     concurrent_requests -= 1;
    }
    max_retries -= 1;
-  }
-  for _ in 0 .. cfg.concurrency {
-    broker.send(b"ENDOFWORKLOAD", 0).unwrap();
   }
   println!("Finished after {}", start_time.elapsed().as_secs());
   match chunk_index.store(&format!("{}.idx",&cfg.input_filename)) {
@@ -318,6 +369,7 @@ mod tests {
 
   #[test]
   fn it_gets_id() {
+    let verbosity = 1i8;
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
@@ -326,6 +378,7 @@ mod tests {
       "checksum".to_owned(),
       10i8,
       "tcp://*:5555".to_owned(),
+      verbosity,
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -333,19 +386,20 @@ mod tests {
       String::with_capacity(64),
     ];
     let test_xml = "<KEY_3>A</KEY_3><KEY_2></KEY_2><KEY_1>1</KEY_1>".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id),true);
+    let fake_id = "TESTUNIT".to_owned();
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),true);
     assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "
     
     <KEY_1>1</KEY_1>
       <KEY_3>A</KEY_3>
       <KEY_2></KEY_2>".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id),true);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),true);
     assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "NotAnXML".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id),false);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),false);
     let test_xml = "<KEY_3>A</KEY_3>".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id),false);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),false);
     let cfg = Config::new(
       "li".to_owned(),
       "div".to_owned(),
@@ -354,12 +408,13 @@ mod tests {
       "checksum".to_owned(),
       10i8,
       "tcp://*:5555".to_owned(),
+      verbosity,
     );
     let mut html_chunk_id: Vec<String> = vec![
       String::with_capacity(64),
     ];
     let test_html = "<html><head></head> <body> <div><li>1</li></div> </body> </html>".to_owned();
-    assert_eq!(get_id(&test_html,&cfg.xml_keys,&mut html_chunk_id),true);
+    assert_eq!(get_id(&test_html,&cfg.xml_keys,&mut html_chunk_id,&fake_id,verbosity),true);
     assert_eq!(html_chunk_id.join("&"),"1".to_owned());
   }
   #[test]
@@ -372,6 +427,7 @@ mod tests {
         "test".to_owned(),
         10i8,
         "tcp://*:5555".to_owned(),
+        0i8,
     );
     let mut test_xml = "<PRELUDE_TAGS></PRELUDE_TAGS>
       <IMPORTANT_DATA><INTERNAL_DATA>A</INTERNAL_DATA></IMPORTANT_DATA>
@@ -397,6 +453,7 @@ mod tests {
       "checksum".to_owned(),
       10i8,
       "tcp://*:5555".to_owned(),
+      0i8,
     );
     let mut test_html = "<html><head></head> <body> <div><li>1</li></div> <div><li>2</li></div> <div><li>3</li></div> </body> </html>".to_owned();
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>1</li>".to_owned(),32usize)));
@@ -411,8 +468,9 @@ mod tests {
       "tests/test1-dup.xml".to_owned(),
       10usize,
       "checksum".to_owned(),
-      10i8,
+      1i8, // The assert has a fixed expected offset, so we need to do this serially.
       "tcp://*:5671".to_owned(),
+      0i8,
     );
     // There are 2 duplicate IDs in chunks in this file. in the same line.
     // <div><li>1</li></div><div><li>1</li></div>
@@ -426,6 +484,7 @@ mod tests {
   }
   #[bench]
   fn bench_get_id(b: &mut Bencher) {
+    let verbosity = 1i8;
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
@@ -434,6 +493,7 @@ mod tests {
       "checksum".to_owned(),
       10i8,
       "tcp://*:5555".to_owned(),
+      verbosity,
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -442,11 +502,12 @@ mod tests {
     ];
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
-      get_id(&test_xml,&cfg.xml_keys,&mut chunk_id)
+      get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),verbosity)
     });
    }
   #[bench]
   fn bench_get_id_blackbox(b: &mut Bencher) {
+    let verbosity = 1i8;
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
@@ -455,6 +516,7 @@ mod tests {
       "checksum".to_owned(),
       10i8,
       "tcp://*:5555".to_owned(),
+      verbosity,
     );
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
@@ -464,7 +526,7 @@ mod tests {
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
       for _ in 1..1000 {
-        black_box(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id));
+        black_box(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),verbosity));
       }
     });
    }
@@ -480,6 +542,7 @@ mod tests {
       "checksum".to_owned(),
       1i8,
       "tcp://*:5555".to_owned(),
+      0i8,
     );
     b.iter(|| {
       for _ in 1..1000 {
