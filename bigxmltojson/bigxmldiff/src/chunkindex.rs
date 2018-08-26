@@ -56,7 +56,7 @@ impl ChunkIndex {
   pub fn store(&self, file: &String) -> std::io::Result<()> {
     let mut file = File::create(file)?;
     for (chunk_id, payload) in &self.chunks {
-      file.write_all(format!("{}&{}", chunk_id, payload).as_bytes())?;
+      file.write_all(format!("{}&{}\n", chunk_id, payload).as_bytes())?;
     }
     Ok(())
   }

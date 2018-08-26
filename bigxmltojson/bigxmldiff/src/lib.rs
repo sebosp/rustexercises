@@ -116,19 +116,14 @@ pub fn get_xml_chunk(data: &mut String, cfg: &Config) -> Option<(String,usize)> 
 pub fn process_chunk(xml_chunk: &String,
                      chunk_id: &mut Vec<String>,
                      xml_keys: &Vec<String>,
-                     record_offset: usize,
-                     num_record: usize,
-                     worker_id_string: String,
+                     worker_id_string: &String,
                      verbosity: i8,
-) -> Result<(String,String,usize),String>{
+) -> Result<(String,String),String>{
   if get_id(&xml_chunk,xml_keys,chunk_id, &worker_id_string,verbosity) {
     let checksum = calculate_checksum(&xml_chunk);
-    if verbosity > 2 {
-      println!("WORKER[{}] Record {} id: {} shasum {}", worker_id_string,num_record, chunk_id.join("&"),checksum);
-    }
-    Ok((chunk_id.join("&"),checksum,record_offset))
+    Ok((chunk_id.join("&"),checksum))
   } else {
-    return Err(format!("Unable to find key for chunk at offset {}",record_offset))
+    return Err("get_id: Unable to find key".to_owned());
   }
 }
 
@@ -142,11 +137,16 @@ pub fn to_string(socket: &zmq::Socket) -> Result<String,String> {
 fn worker_task(xml_keys: Vec<String>, connect_endpoint: String, verbosity: i8) {
   let context = zmq::Context::new();
   let worker = context.socket(zmq::DEALER).unwrap();
+
+  let start_time = Instant::now();
   let identity: Vec<_> = (0..10).map(|_| rand::random::<u8>()).collect();
   worker.set_identity(&identity).expect("failed setting client id");
-  worker.connect(&connect_endpoint.replace("*","localhost")).expect("failed connecting client");
+  let worker_id_string = hex(&identity);
 
-  let mut total = 0;
+  // Replace * to localhost in case the connection broker binds to all addresses.
+  worker.connect(&connect_endpoint.replace("*","localhost")).expect("failed connecting client");
+  let max_tasks = 10000;
+  let mut total_tasks = 0;
   let mut chunk_id: Vec<String> = vec![];
   for _ in 0 .. xml_keys.len() {
     // Reserve memory for our key XXX: Magic number.
@@ -154,43 +154,71 @@ fn worker_task(xml_keys: Vec<String>, connect_endpoint: String, verbosity: i8) {
   }
   // Tell the broker we're ready for work
   if verbosity > 0 {
-    println!("WORKER[{}] Registering to broker",hex(&identity));
+    println!("WORKER[{}] Registering to broker", &worker_id_string);
   }
   worker.send(b"", SNDMORE).unwrap(); // Envelope
   worker.send(b"READYFORWORK", 0).unwrap();
+  let mut worktype:String;
+  let mut xml_chunk:String ;
+  let mut record_offset:String;
+  let mut num_record:String;
+  let mut processed_id:String;
+  let mut processed_checksum:String;
+  let mut chunk_size:usize;
   loop {
 
     // Get worktype from broker
     worker.recv_bytes(0).unwrap();  // envelope delimiter
-    let worktype = worker.recv_string(0).unwrap().unwrap();
+    worktype = worker.recv_string(0).unwrap().unwrap();
     if verbosity > 1 {
-      println!("WORKER[{}] Got worktype: {:?}",hex(&identity),worktype);
+      println!("WORKER[{}] Got worktype: {:?}", &worker_id_string, worktype);
     }
     if worktype == "ENDOFWORKLOAD" {
       if verbosity > 0 {
-        println!("WORKER[{}] completed {} tasks", hex(&identity), total);
+        println!("WORKER[{}] completed {} tasks", &worker_id_string, total_tasks);
       }
       break;
     }
-    let xml_chunk = worker.recv_string(0).unwrap().expect("Unable to receive xml_chunk");
+    xml_chunk = worker.recv_string(0).unwrap().expect("Unable to receive xml_chunk");
+    chunk_size = xml_chunk.len();
     if verbosity > 2 {
-      println!("WORKER[{}] Got xml_chunk: {:?}",hex(&identity),xml_chunk);
+      println!("WORKER[{}] Got xml_chunk: {:?} with size: {}", &worker_id_string, xml_chunk, chunk_size);
     }
-    let record_offset = worker.recv_string(0).unwrap().unwrap().parse::<usize>().expect("Unable to parse usize");
-    let num_record = worker.recv_string(0).unwrap().unwrap().parse::<usize>().expect("Unable to parse usize");
-    let (processed_id, processed_checksum, processed_offset) = process_chunk(&xml_chunk,
+    record_offset = worker.recv_string(0).unwrap().expect("Unable to get record_offset");
+    num_record = worker.recv_string(0).unwrap().expect("Unable to get record number");
+    match process_chunk(&xml_chunk,
                   &mut chunk_id,
                   &xml_keys,
-                  record_offset,
-                  num_record,
-                  hex(&identity),
-                  verbosity).expect("WORKER Unable to process chunk");
+                  &worker_id_string,
+                  verbosity) {
+      Ok((proc_id, proc_chksum)) => {
+        processed_id = proc_id;
+        processed_checksum = proc_chksum;
+      },
+      Err(err)                   => {
+        println!("At record offset {}: {}",record_offset, err);
+        break;
+      }
+    }
+    if verbosity > 2 {
+      println!("WORKER[{}] Record {} id: {} shasum {}", &worker_id_string ,num_record, processed_id, processed_checksum);
+    }
     worker.send(b"", SNDMORE).unwrap();
-    worker.send(b"RESULT", SNDMORE).unwrap();
+    if total_tasks > max_tasks {
+      worker.send(b"LASTRESULT", SNDMORE).unwrap(); // Worker is finishing.
+    } else {
+      worker.send(b"RESULT", SNDMORE).unwrap();
+    }
     worker.send(&processed_id.into_bytes(), SNDMORE).unwrap();
-    worker.send(&processed_checksum.to_string().into_bytes(), SNDMORE).unwrap();
-    worker.send(&processed_offset.to_string().into_bytes(), 0).unwrap();
-    total += 1;
+    worker.send(&processed_checksum.into_bytes(), SNDMORE).unwrap();
+    worker.send(&record_offset.into_bytes(), 0).unwrap();
+    if total_tasks > max_tasks {
+      if verbosity > 0 {
+        println!("WORKER[{}] completed {} tasks in {} seconds", &worker_id_string, total_tasks, start_time.elapsed().as_secs());
+      }
+      break;
+    }
+    total_tasks += 1;
   }
 }
 /// `process_response` checks for more data from the worker.
@@ -218,6 +246,7 @@ pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex, verb
     .expect("Could not parse processed_offset");
   if verbosity > 1 {
     println!("BROKER: Inserting to chunk_index");
+    println!("{}&{}&{}", processed_id, processed_checksum, processed_offset);
   }
   if ! chunk_index.insert(processed_id.clone().to_string(),format!("{}&{}", processed_checksum, processed_offset)) {
     let prev_payload = match chunk_index.search(&processed_id.to_string()) {
@@ -226,7 +255,11 @@ pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex, verb
     };
     return Err(format!("At offset {}, found existing key {} at sha&offset {}",processed_offset,processed_id,prev_payload))
   }
-  Ok(0)
+  if response_type == "LASTRESULT" {
+     Ok(-1)
+  } else {
+    Ok(0)
+  }
 }
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
@@ -249,15 +282,15 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
   let broker = context.socket(zmq::ROUTER).unwrap();
   println!("Binding to: {}",&cfg.bind_address);
   assert!(broker.bind(&cfg.bind_address).is_ok());
-  let mut thread_pool = Vec::new();
+  let mut chunk_size:usize;
+  let max_tasks = 1000_000;
   for _ in 0 .. cfg.concurrency {
     let xml_keys = cfg.xml_keys.clone();
     let connect_endpoint = cfg.bind_address.clone();
     let verbosity = cfg.verbosity.clone();
-    let child = thread::spawn(move || {
+    thread::spawn(move || {
       worker_task(xml_keys,connect_endpoint,verbosity);
     });
-    thread_pool.push(child);
   }
   println!("Starting {} threads",cfg.concurrency);
   let start_time = Instant::now();
@@ -266,6 +299,7 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
     broker.as_poll_item(zmq::POLLIN),
   ];
   let mut max_retries:i64;
+  let mut worker_number_delta:i8;
   loop {
     let length = {
       let mut buffer = reader.fill_buf().unwrap();
@@ -282,7 +316,7 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
 
         max_retries = 100_000;
         loop {
-          zmq::poll(&mut event_items, 1000000).expect("client failed polling");
+          zmq::poll(&mut event_items, 1000).expect("client failed polling");
           if event_items[0].is_readable() {
             break;
           }
@@ -298,21 +332,29 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
         if cfg.verbosity > 0 {
           println!("BROKER: Got worker id: {}",hex(&worker_id));
         }
-        concurrent_requests += process_response(&broker,&mut chunk_index,cfg.verbosity)?;
+        worker_number_delta = process_response(&broker,&mut chunk_index,cfg.verbosity)?;
+        if worker_number_delta == -1 {
+          // Spawn a new thread in case one worker disconnects
+          let xml_keys = cfg.xml_keys.clone();
+          let connect_endpoint = cfg.bind_address.clone();
+          let verbosity = cfg.verbosity.clone();
+          thread::spawn(move || {
+            worker_task(xml_keys,connect_endpoint,verbosity);
+          });
+        }
+        concurrent_requests += worker_number_delta;
         broker.send(&worker_id, SNDMORE).unwrap();
         broker.send(b"", SNDMORE).unwrap();
         broker.send(b"PROCESS_CHUNK", SNDMORE).unwrap();
+        chunk_size = xml_chunk.len();
         broker.send(&xml_chunk.into_bytes(), SNDMORE).unwrap();
         broker.send(&record_offset.to_string().into_bytes(), SNDMORE).unwrap();
         broker.send(&num_records.to_string().into_bytes(), 0).unwrap();
         if cfg.verbosity > 2 {
-          println!("BROKER: Sent request to worker thread");
-        }
-        if concurrent_requests / 2 <= cfg.concurrency {
-          break;
+          println!("BROKER: Sent Chunk Sized {} request to worker thread", chunk_size);
         }
       }
-      if num_records % 250 == 0 {
+      if num_records % 50000 == 0 {
         println!("BROKER: Processed {} in {} seconds",num_records,start_time.elapsed().as_secs());
       }
       buffer.len()
@@ -321,6 +363,9 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
       break;
     }
     reader.consume(length);
+    if num_records > max_tasks {
+      break;
+    }
   }
   max_retries = 100_000;
   loop {
@@ -335,7 +380,7 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
      if cfg.verbosity > 2 {
        println!("BROKER: Got worker id: {}",hex(&worker_id));
      }
-     concurrent_requests += process_response(&broker,&mut chunk_index,cfg.verbosity)?;
+     process_response(&broker,&mut chunk_index,cfg.verbosity)?;
      broker.send(&worker_id, SNDMORE).unwrap();
      broker.send(b"", SNDMORE).unwrap();
      broker.send(b"ENDOFWORKLOAD", SNDMORE).unwrap();
