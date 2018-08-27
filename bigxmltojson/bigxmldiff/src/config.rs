@@ -8,7 +8,8 @@ use std::path::Path;
 
 pub struct Config {
   pub mode: String,
-  pub input_filename: String,
+  pub input_filename1: String,
+  pub input_filename2: String,
   pub xml_keys: Vec<String>,
   pub chunk_delimiter: String,
   pub chunk_size: usize,
@@ -18,7 +19,7 @@ pub struct Config {
 }
 
 impl Config {
-  pub fn new(keys: String,chunk_delimiter: String, input_filename: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8) -> Config {
+  pub fn new(keys: String,chunk_delimiter: String, input_filename1: String, input_filename2: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8) -> Config {
     let mut xml_keys:Vec<String> = vec![];
     for key in keys.split(",") {
       // Prepend an / for the closing tag
@@ -27,7 +28,8 @@ impl Config {
     Config{
         xml_keys: xml_keys,
         chunk_delimiter: chunk_delimiter,
-        input_filename: input_filename,
+        input_filename1: input_filename1,
+        input_filename2: input_filename2,
         chunk_size: chunk_size * 1024,
         mode: mode,
         concurrency: concurrency,
@@ -41,7 +43,8 @@ impl Config {
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("m", "mode", "Operating mode, see help for more info", "MODE");
-    opts.optopt("i", "inputFile", "Input File ", "FILE");
+    opts.optopt("i1", "inputFile1", "Input File 1", "FILE");
+    opts.optopt("i2", "inputFile2", "Input File 2", "FILE");
     opts.optopt("o", "outputFile", "Output File ", "FILE");
     opts.optopt("d", "delimiter", "XML Chunk Delimiter", "GROUPINGTAG");
     opts.optopt("s", "size", "File read size", "SIZE");
@@ -58,13 +61,14 @@ impl Config {
     let mut xml_keystring = String::new();
     let mut bind_address = String::new();
     let mut chunk_delimiter = String::new();
-    let mut input_filename = String::new();
+    let mut input_filename1 = String::new();
+    let mut input_filename2 = String::new();
     let mut chunk_size = 0usize;
     let mut concurrency = 1i8;
     let mut verbosity = 1i8;
 
     if matches.opt_present("h") {
-      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency,bind_address,verbosity));
+      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity));
     }
     match matches.opt_str("m") {
       Some(opt_mode) => {
@@ -80,15 +84,25 @@ impl Config {
       Some(keys) => xml_keystring = keys,
       None => return Err("Missing xml key fields"),
     }
-    match matches.opt_str("i") {
+    match matches.opt_str("i1") {
       Some(file) => {
         if Path::new(&file).exists() {
-          input_filename = file
+          input_filename1 = file
         } else {
           return Err("Input file does not exist.");
         }
       },
-      None => return Err("Missing -i input file parameter"),
+      None => return Err("Missing -i1 input file parameter"),
+    };
+    match matches.opt_str("i2") {
+      Some(file) => {
+        if Path::new(&file).exists() {
+          input_filename2 = file
+        } else {
+          return Err("Input file does not exist.");
+        }
+      },
+      None => return Err("Missing -i2 input file parameter"),
     };
     chunk_size = match matches.opt_str("s") {
       Some(size) => size.parse::<usize>().unwrap(),
@@ -108,7 +122,7 @@ impl Config {
       },
       None => bind_address = "tcp://*:5555".to_owned(),
     }
-    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename,chunk_size,mode,concurrency,bind_address,verbosity))
+    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity))
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
@@ -121,7 +135,8 @@ impl Config {
     println!("    - compare: Compares two chunk indexes files");
     println!("    - checksum: Calculates the chunk checksums of a file");
     println!("    - diff: Displays the difference of two XML files");
-    println!("-i: inputFile");
+    println!("-i1: inputFile1");
+    println!("-i2: inputFile2");
     println!("-o: outputFile");
     println!("-s: Read file in these many bytes");
     println!("-d: delimiter: XML Chunk Delimiter");

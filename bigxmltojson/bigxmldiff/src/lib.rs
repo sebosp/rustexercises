@@ -264,14 +264,14 @@ pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex, verb
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
 /// The data chunks are checked for XML chunks that can be further parsed.
-pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
-  println!("Checking file {}.",&cfg.input_filename);
-  let file = File::open(Path::new(&cfg.input_filename)).unwrap();
+pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkIndex, usize), String> {
+  println!("Checking file {}.",&filename);
+  let file = File::open(Path::new(&filename)).unwrap();
   let mut reader = BufReader::with_capacity(cfg.chunk_size, file);
   let mut data_chunk = String::with_capacity(cfg.chunk_size * 2);
   let mut num_records = 0usize;
   let mut offset = 0usize;
-  let mut chunk_index = ChunkIndex::new(&cfg.input_filename);
+  let mut chunk_index = ChunkIndex::new(&filename);
   // We need to add <DELIM_TAG></DELIM_TAG> to the offset to account for proper offset.
   // These are removed from the get_xml_chunk function.
   // We take the first character after the opening <DELIM_TAG> as the offset of 
@@ -372,7 +372,6 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
    if concurrent_requests == 0 || max_retries == 0 {
      break;
    }
-   //if broker.poll(zmq::POLLIN, 1000).expect("client failed polling") > 0 {
    zmq::poll(&mut event_items, 1000).expect("client failed polling");
    if event_items[0].is_readable() {
      let worker_id = broker.recv_bytes(0).unwrap(); // ID frame
@@ -389,22 +388,53 @@ pub fn read_file_in_chunks(cfg: &Config) -> Result<usize, String> {
    max_retries -= 1;
   }
   println!("Finished after {}", start_time.elapsed().as_secs());
-  match chunk_index.store(&format!("{}.idx",&cfg.input_filename)) {
-    Ok(_)    => Ok(num_records),
+  match chunk_index.store(&format!("{}.idx",&filename)) {
+    Ok(_)    => Ok((chunk_index, num_records)),
     Err(err) => Err(format!("Unable to write index file: {}",err)),
   }
 }
 
-// Creates a chunk index file from an XML
-pub fn build_chunkindex_from_xml(cfg: &Config) {
-  match read_file_in_chunks(cfg) {
-    Ok(num_records) => {
+/// `calculate_diff` stores the difference of the two chunk_indexes in the output file.
+/// The first file is seen as the "old version" and the new file as the "new version".
+/// This calculation yields 3 files that are sorted by file byte offset to allow easy fseek.
+/// After each of these operations, the entries are deleted from each ChunkIndex
+/// - When an entry exists on both idx1 and idx2, and they are the same:
+///   These records are ignored.
+/// - When an entry exists on both idx1 and idx2, and they are different:
+///   idx2 version will be recognized the new version.
+///   These records are added to the ".modified" file
+/// - When an entry exist only in idx1 and not in idx2:
+///   The records are added to the ".deleted" file
+/// - When an entry exist only in idx2:
+///   The records are added to the ".added" file.
+pub fn calculate_diff(_cfg: &Config, _idx1: &mut ChunkIndex, _idx2: &mut ChunkIndex) {
+  unimplemented!("Wait up");
+}
+
+/// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
+pub fn build_chunkindex_from_xml(cfg: &Config) -> Result<(),String> {
+/*  let mut _chunk_index1:ChunkIndex;
+  let mut chunk_index2:ChunkIndex;
+  match read_file_in_chunks(cfg,&cfg.input_filename1) {
+    Ok((chunk_index, num_records)) => {
+      chunk_index1 = chunk_index;
       println!("Consumed {} records", num_records);
     },
     Err(err) => {
-      println!("Error processing file: {}",err);
+      return Err(format!("Error processing file: {}",err));
+    }
+  }*/
+  match read_file_in_chunks(cfg,&cfg.input_filename2) {
+    Ok((_, num_records)) => {
+      //chunk_index2 = chunk_index;
+      println!("Consumed {} records", num_records);
+    },
+    Err(err) => {
+      return Err(format!("Error processing file: {}",err));
     }
   }
+  //calculate_diff(&cfg, &mut _chunk_index1, &mut chunk_index2);
+  Ok(())
 }
 
 #[cfg(test)]
@@ -418,6 +448,7 @@ mod tests {
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
       "MEMORY".to_owned(),
       10usize,
       "checksum".to_owned(),
@@ -449,6 +480,7 @@ mod tests {
       "li".to_owned(),
       "div".to_owned(),
       "MEMORY".to_owned(),
+      "MEMORY".to_owned(),
       10usize,
       "checksum".to_owned(),
       10i8,
@@ -467,6 +499,7 @@ mod tests {
     let cfg = Config::new(
         "INVALID".to_owned(),
         "IMPORTANT_DATA".to_owned(),
+        "MEMORY".to_owned(),
         "MEMORY".to_owned(),
         50usize,
         "test".to_owned(),
@@ -494,6 +527,7 @@ mod tests {
       "li".to_owned(),
       "div".to_owned(),
       "MEMORY".to_owned(),
+      "MEMORY".to_owned(),
       10usize,
       "checksum".to_owned(),
       10i8,
@@ -507,10 +541,13 @@ mod tests {
   }
   #[test]
   fn it_adds_chunks() {
+    let file1 = "tests/test1-dup.xml".to_owned();
+    let file2 = "tests/test1-dup.xml".to_owned();
     let cfg = Config::new(
       "li".to_owned(),
       "div".to_owned(),
-      "tests/test1-dup.xml".to_owned(),
+      file1,
+      file2,
       10usize,
       "checksum".to_owned(),
       1i8, // The assert has a fixed expected offset, so we need to do this serially.
@@ -522,10 +559,10 @@ mod tests {
     // 01234^67890123456789012345^7890
     let duplicate_id_tag = "<li>1</li>".to_owned();
     let id_sha = calculate_checksum(&duplicate_id_tag);
-    assert_eq!(
-      read_file_in_chunks(&cfg),
-      Err(format!("At offset {}, found existing key {} at sha&offset {}&{}",26usize,1,id_sha,5usize))
-    );
+    match read_file_in_chunks(&cfg, &cfg.input_filename1) {
+      Err(err) => assert_eq!(format!("At offset {}, found existing key {} at sha&offset {}&{}",26usize,1,id_sha,5usize),err),
+      Ok((_,_))  => assert_eq!(0,1),
+    };
   }
   #[bench]
   fn bench_get_id(b: &mut Bencher) {
@@ -533,6 +570,7 @@ mod tests {
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
       "MEMORY".to_owned(),
       10usize,
       "checksum".to_owned(),
@@ -556,6 +594,7 @@ mod tests {
     let cfg = Config::new(
       "KEY_1,KEY_2,KEY_3".to_owned(),
       "NOTHING".to_owned(),
+      "MEMORY".to_owned(),
       "MEMORY".to_owned(),
       10usize,
       "checksum".to_owned(),
@@ -583,6 +622,7 @@ mod tests {
       "li".to_owned(),
       "div".to_owned(),
       "tests/test1.xml".to_owned(),
+      "tests/test1.xml".to_owned(),
       10usize,
       "checksum".to_owned(),
       1i8,
@@ -591,7 +631,7 @@ mod tests {
     );
     b.iter(|| {
       for _ in 1..1000 {
-        black_box(read_file_in_chunks(&cfg).unwrap());
+        black_box(read_file_in_chunks(&cfg,&cfg.input_filename1).unwrap());
       }
     });
   }
