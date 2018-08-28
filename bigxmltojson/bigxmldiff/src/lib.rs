@@ -407,13 +407,80 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
 ///   The records are added to the ".deleted" file
 /// - When an entry exist only in idx2:
 ///   The records are added to the ".added" file.
-pub fn calculate_diff(_cfg: &Config, _idx1: &mut ChunkIndex, _idx2: &mut ChunkIndex) {
-  unimplemented!("Wait up");
+pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex) {
+  // ChunkIndexes marked fol deletion
+  let mut chunk1_todelete: Vec<String> = vec![];
+  let mut chunk2_todelete: Vec<String> = vec![];
+  // Vectors that store the offsets, in the spirit of git status:
+  let mut added: Vec<usize> = vec![]; // Offset in second file, contains new val.
+  let mut modified: Vec<usize> = vec![]; // Offset in second file, contains new val.
+  let mut deleted: Vec<usize> = vec![]; // Offset in first file, contains removed val.
+  // Placeholders
+  let mut offset: usize;
+  let mut chunk1_payload: Vec<&str>;
+  let mut chunk2_payload: Vec<&str>;
+  for (chunk1_id, chunk1_data) in &idx1.chunks {
+    chunk1_payload = chunk1_data.split('&').collect();
+    if chunk1_payload.len() != 2 {
+      panic!("Chunk1 Index is corrupt. The payload does not contain 2 fields");
+    }
+    match idx2.chunks.get(chunk1_id) {
+      Some(chunk2_data) => {
+        // Check for equality, see if it has been updated.
+        // The payload contains "checksum&offset"
+        chunk2_payload = chunk2_data.split('&').collect();
+        if chunk2_payload.len() != 2 {
+          panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
+        }
+        if chunk1_payload[0] != chunk2_payload[0] {
+          if cfg.verbosity > 0 {
+            println!("+ modified: {}: (prev: {}, new: {})",chunk1_id,chunk1_payload[0],chunk2_payload[0]);
+          }
+          offset = chunk2_payload[1].parse::<usize>().expect("Unable to parse chunk2 offset to usize");
+          modified.push(offset);
+
+        } else {
+          if cfg.verbosity > 3 {
+            println!(": unchanged: {}: ({})",chunk1_id,chunk1_payload[0]);
+          }
+        }
+        chunk1_todelete.push(chunk1_payload[0].to_string());
+        chunk2_todelete.push(chunk1_payload[0].to_string());
+      },
+      None => {
+        if cfg.verbosity > 0 {
+          println!("- deleted: {}: ({})",chunk1_id,chunk1_payload[0]);
+        }
+        offset = chunk1_payload[1].parse::<usize>().expect("Unable to parse chunk1 offset to usize");
+        deleted.push(offset);
+      }
+    }
+  }
+  for todelete in chunk1_todelete {
+    idx1.remove(&todelete);
+  }
+  for todelete in chunk2_todelete {
+    idx2.remove(&todelete);
+  }
+  for (chunk2_id, chunk2_data) in &idx2.chunks {
+    chunk2_payload = chunk2_data.split('&').collect();
+    if chunk2_payload.len() != 2 {
+      panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
+    }
+    match idx1.chunks.get(chunk2_id) {
+      Some(_) => println!("* this ID have been removed: {}: ({})",chunk2_id,chunk2_payload[0]),
+      None => {
+        offset = chunk2_payload[1].parse::<usize>().expect("Unable to parse chunk2 offset to usize");
+        added.push(offset);
+      }
+    }
+  }
+
 }
 
 /// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
 pub fn build_chunkindex_from_xml(cfg: &Config) -> Result<(),String> {
-/*  let mut _chunk_index1:ChunkIndex;
+  let mut chunk_index1:ChunkIndex;
   let mut chunk_index2:ChunkIndex;
   match read_file_in_chunks(cfg,&cfg.input_filename1) {
     Ok((chunk_index, num_records)) => {
@@ -423,17 +490,17 @@ pub fn build_chunkindex_from_xml(cfg: &Config) -> Result<(),String> {
     Err(err) => {
       return Err(format!("Error processing file: {}",err));
     }
-  }*/
+  }
   match read_file_in_chunks(cfg,&cfg.input_filename2) {
-    Ok((_, num_records)) => {
-      //chunk_index2 = chunk_index;
+    Ok((chunk_index, num_records)) => {
+      chunk_index2 = chunk_index;
       println!("Consumed {} records", num_records);
     },
     Err(err) => {
       return Err(format!("Error processing file: {}",err));
     }
   }
-  //calculate_diff(&cfg, &mut _chunk_index1, &mut chunk_index2);
+  calculate_diff(&cfg, &mut chunk_index1, &mut chunk_index2);
   Ok(())
 }
 

@@ -17,8 +17,8 @@ pub struct Chunk {
 }
 
 pub struct ChunkIndex {
-  file: String,
-  chunks: BTreeMap<String,String>,
+  pub file: String,
+  pub chunks: BTreeMap<String,String>,
 }
 impl Chunk {
   pub fn new(chunk_id: String, checksum: String, offset: usize) -> Chunk {
@@ -52,6 +52,9 @@ impl ChunkIndex {
   }
   pub fn search(&self, chunk_id: &String) -> Option<&String> {
     self.chunks.get(chunk_id)
+  }
+  pub fn remove(&mut self, chunk_id: &String) {
+    self.chunks.remove(chunk_id);
   }
   pub fn store(&self, file: &String) -> std::io::Result<()> {
     let mut file = File::create(file)?;
