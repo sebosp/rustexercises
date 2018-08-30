@@ -407,7 +407,7 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
 ///   The records are added to the ".deleted" file
 /// - When an entry exist only in idx2:
 ///   The records are added to the ".added" file.
-pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex) {
+pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex) -> (Vec<usize>,Vec<usize>,Vec<usize>) {
   // ChunkIndexes marked fol deletion
   let mut chunk1_todelete: Vec<String> = vec![];
   let mut chunk2_todelete: Vec<String> = vec![];
@@ -417,10 +417,10 @@ pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex
   let mut deleted: Vec<usize> = vec![]; // Offset in first file, contains removed val.
   // Placeholders
   let mut offset: usize;
-  let mut chunk1_payload: Vec<&str>;
-  let mut chunk2_payload: Vec<&str>;
+  let mut chunk1_payload: Vec<String>;
+  let mut chunk2_payload: Vec<String>;
   for (chunk1_id, chunk1_data) in &idx1.chunks {
-    chunk1_payload = chunk1_data.split('&').collect();
+    chunk1_payload = chunk1_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
     if chunk1_payload.len() != 2 {
       panic!("Chunk1 Index is corrupt. The payload does not contain 2 fields");
     }
@@ -428,7 +428,7 @@ pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex
       Some(chunk2_data) => {
         // Check for equality, see if it has been updated.
         // The payload contains "checksum&offset"
-        chunk2_payload = chunk2_data.split('&').collect();
+        chunk2_payload = chunk2_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
         if chunk2_payload.len() != 2 {
           panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
         }
@@ -457,13 +457,13 @@ pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex
     }
   }
   for todelete in chunk1_todelete {
-    idx1.remove(&todelete);
+    idx1.chunks.remove(&todelete);
   }
   for todelete in chunk2_todelete {
-    idx2.remove(&todelete);
+    idx2.chunks.remove(&todelete);
   }
   for (chunk2_id, chunk2_data) in &idx2.chunks {
-    chunk2_payload = chunk2_data.split('&').collect();
+    chunk2_payload = chunk2_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
     if chunk2_payload.len() != 2 {
       panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
     }
@@ -475,7 +475,7 @@ pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex
       }
     }
   }
-
+  (added, modified, deleted)
 }
 
 /// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
