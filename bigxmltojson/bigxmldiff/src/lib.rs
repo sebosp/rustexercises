@@ -387,120 +387,29 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
    }
    max_retries -= 1;
   }
-  println!("Finished after {}", start_time.elapsed().as_secs());
+  println!("Finished {} after {}", num_records, start_time.elapsed().as_secs());
   match chunk_index.store(&format!("{}.idx",&filename)) {
     Ok(_)    => Ok((chunk_index, num_records)),
     Err(err) => Err(format!("Unable to write index file: {}",err)),
   }
 }
 
-/// `calculate_diff` stores the difference of the two chunk_indexes in the output file.
-/// The first file is seen as the "old version" and the new file as the "new version".
-/// This calculation yields 3 files that are sorted by file byte offset to allow easy fseek.
-/// After each of these operations, the entries are deleted from each ChunkIndex
-/// - When an entry exists on both idx1 and idx2, and they are the same:
-///   These records are ignored.
-/// - When an entry exists on both idx1 and idx2, and they are different:
-///   idx2 version will be recognized the new version.
-///   These records are added to the ".modified" file
-/// - When an entry exist only in idx1 and not in idx2:
-///   The records are added to the ".deleted" file
-/// - When an entry exist only in idx2:
-///   The records are added to the ".added" file.
-pub fn calculate_diff(cfg: &Config, idx1: &mut ChunkIndex, idx2: &mut ChunkIndex) -> (Vec<usize>,Vec<usize>,Vec<usize>) {
-  // ChunkIndexes marked fol deletion
-  let mut chunk1_todelete: Vec<String> = vec![];
-  let mut chunk2_todelete: Vec<String> = vec![];
-  // Vectors that store the offsets, in the spirit of git status:
-  let mut added: Vec<usize> = vec![]; // Offset in second file, contains new val.
-  let mut modified: Vec<usize> = vec![]; // Offset in second file, contains new val.
-  let mut deleted: Vec<usize> = vec![]; // Offset in first file, contains removed val.
-  // Placeholders
-  let mut offset: usize;
-  let mut chunk1_payload: Vec<String>;
-  let mut chunk2_payload: Vec<String>;
-  for (chunk1_id, chunk1_data) in &idx1.chunks {
-    chunk1_payload = chunk1_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
-    if chunk1_payload.len() != 2 {
-      panic!("Chunk1 Index is corrupt. The payload does not contain 2 fields");
-    }
-    match idx2.chunks.get(chunk1_id) {
-      Some(chunk2_data) => {
-        // Check for equality, see if it has been updated.
-        // The payload contains "checksum&offset"
-        chunk2_payload = chunk2_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
-        if chunk2_payload.len() != 2 {
-          panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
-        }
-        if chunk1_payload[0] != chunk2_payload[0] {
-          if cfg.verbosity > 0 {
-            println!("+ modified: {}: (prev: {}, new: {})",chunk1_id,chunk1_payload[0],chunk2_payload[0]);
-          }
-          offset = chunk2_payload[1].parse::<usize>().expect("Unable to parse chunk2 offset to usize");
-          modified.push(offset);
-
-        } else {
-          if cfg.verbosity > 3 {
-            println!(": unchanged: {}: ({})",chunk1_id,chunk1_payload[0]);
-          }
-        }
-        chunk1_todelete.push(chunk1_payload[0].to_string());
-        chunk2_todelete.push(chunk1_payload[0].to_string());
-      },
-      None => {
-        if cfg.verbosity > 0 {
-          println!("- deleted: {}: ({})",chunk1_id,chunk1_payload[0]);
-        }
-        offset = chunk1_payload[1].parse::<usize>().expect("Unable to parse chunk1 offset to usize");
-        deleted.push(offset);
-      }
-    }
-  }
-  for todelete in chunk1_todelete {
-    idx1.chunks.remove(&todelete);
-  }
-  for todelete in chunk2_todelete {
-    idx2.chunks.remove(&todelete);
-  }
-  for (chunk2_id, chunk2_data) in &idx2.chunks {
-    chunk2_payload = chunk2_data.split('&').map(|s| s.to_owned()).collect::<Vec<_>>();
-    if chunk2_payload.len() != 2 {
-      panic!("Chunk2 Index is corrupt. The payload does not contain 2 fields");
-    }
-    match idx1.chunks.get(chunk2_id) {
-      Some(_) => println!("* this ID have been removed: {}: ({})",chunk2_id,chunk2_payload[0]),
-      None => {
-        offset = chunk2_payload[1].parse::<usize>().expect("Unable to parse chunk2 offset to usize");
-        added.push(offset);
-      }
-    }
-  }
-  (added, modified, deleted)
-}
 
 /// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
-pub fn build_chunkindex_from_xml(cfg: &Config) -> Result<(),String> {
-  let mut chunk_index1:ChunkIndex;
-  let mut chunk_index2:ChunkIndex;
-  match read_file_in_chunks(cfg,&cfg.input_filename1) {
-    Ok((chunk_index, num_records)) => {
-      chunk_index1 = chunk_index;
-      println!("Consumed {} records", num_records);
+pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<ChunkIndex,String> {
+  match read_file_in_chunks(cfg, filename) {
+    Ok((chunk_index, _num_records)) => {
+      Ok(chunk_index)
     },
     Err(err) => {
-      return Err(format!("Error processing file: {}",err));
+      Err(err)
     }
   }
-  match read_file_in_chunks(cfg,&cfg.input_filename2) {
-    Ok((chunk_index, num_records)) => {
-      chunk_index2 = chunk_index;
-      println!("Consumed {} records", num_records);
-    },
-    Err(err) => {
-      return Err(format!("Error processing file: {}",err));
-    }
-  }
-  calculate_diff(&cfg, &mut chunk_index1, &mut chunk_index2);
+}
+pub fn write_diff_files(cfg: &Config) -> Result<(),String> {
+  let mut chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1)?;
+  let mut chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2)?;
+  calculate_diff(&mut chunk_index1, &mut chunk_index2, cfg.verbosity);
   Ok(())
 }
 
