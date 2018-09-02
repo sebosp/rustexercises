@@ -26,8 +26,8 @@ pub mod chunkindex;
 use config::*;
 use chunkindex::*;
 
-use std::io::BufRead;
-use std::io::BufReader;
+use std::io::{BufRead,BufReader,SeekFrom};
+use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use std::str;
@@ -406,10 +406,70 @@ pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<Chun
     }
   }
 }
-pub fn write_diff_files(cfg: &Config) -> Result<(),String> {
-  let mut chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1)?;
-  let mut chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2)?;
-  calculate_diff(&mut chunk_index1, &mut chunk_index2, cfg.verbosity);
+
+/// `get_chunk_from_offset` Gets an XML offset based on the Config boundaries
+/// The data is retured in JSON format.
+pub fn get_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) -> Result<String,String> {
+  match file.seek(SeekFrom::Start(offset as u64)) {
+    Err(err) => return Err(format!("get_chunk_from_offset failed: {}",err)),
+    Ok(_) => {
+      if cfg.verbosity > 3 {
+        println!("get_chunk_from_offset sought to offset {}", offset);
+      }
+    }
+  }
+  let mut reader = BufReader::with_capacity(cfg.chunk_size, file);
+  let mut data_chunk = String::with_capacity(cfg.chunk_size * 2);
+  let mut full_record_found = false;
+  let mut xml_chunk = "".to_owned();
+  loop {
+    let length = {
+      let mut buffer = reader.fill_buf().unwrap();
+      // Get one of our XML subsets from the buffer.
+      let buffer_string = match str::from_utf8(buffer) {
+        Ok(v) => v,
+        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+      };
+      data_chunk += buffer_string;
+      if let Some((chunk, _)) = get_xml_chunk(&mut data_chunk, &cfg) {
+        full_record_found = true;
+        xml_chunk = chunk;
+      }
+      buffer.len()
+    };
+    if length == 0 || full_record_found {
+      break;
+    }
+    reader.consume(length);
+  }
+  if full_record_found {
+    Ok(xml_chunk)
+  } else {
+    Err(format!("Unable to find a chuck at offset {}",offset))
+  }
+}
+
+/// `write_diff_files` Creates three files: .added, .deleted, .modified.
+pub fn write_diff_files(cfg: &Config) -> std::io::Result<()> {
+  let mut chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1).unwrap();
+  let mut chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2).unwrap();
+  let diff = calculate_diff(&mut chunk_index1, &mut chunk_index2, cfg.verbosity);
+  let mut added = diff.0;
+  let mut modified = diff.1;
+  let mut deleted = diff.2;
+  added.sort_unstable();
+  modified.sort_unstable();
+  deleted.sort_unstable();
+  let mut file1 = File::open(&cfg.input_filename1)?;
+  let mut file2 = File::open(&cfg.input_filename2)?;
+  for offset in added {
+    // Process Deleted
+    get_chunk_from_offset(&cfg, &mut file1, offset).unwrap();
+  }
+  // Process Modified
+  file2.seek(SeekFrom::Start(42))?;
+  // Process Added
+  file2.seek(SeekFrom::Start(42))?;
   Ok(())
 }
 
