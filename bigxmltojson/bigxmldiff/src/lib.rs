@@ -388,10 +388,7 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
    max_retries -= 1;
   }
   println!("Finished {} after {}", num_records, start_time.elapsed().as_secs());
-  match chunk_index.store(&format!("{}.idx",&filename)) {
-    Ok(_)    => Ok((chunk_index, num_records)),
-    Err(err) => Err(format!("Unable to write index file: {}",err)),
-  }
+  Ok((chunk_index, num_records))
 }
 
 
@@ -399,7 +396,10 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
 pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<ChunkIndex,String> {
   match read_file_in_chunks(cfg, filename) {
     Ok((chunk_index, _num_records)) => {
-      Ok(chunk_index)
+      match chunk_index.store(&format!("{}.idx",&filename)) {
+        Ok(_) => Ok(chunk_index),
+        Err(err) => Err(format!("Unable to write index file: {}",err)),
+      }
     },
     Err(err) => {
       Err(err)
@@ -407,14 +407,20 @@ pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<Chun
   }
 }
 
-/// `get_chunk_from_offset` Gets an XML offset based on the Config boundaries
+/// `xml_to_json` returns a JSON version of an XML chunk.
+/// If the XML is not valid returns Err.
+pub fn xml_to_json(_input: String) -> Result<String,String> {
+  unimplemented!("Wait up!")
+}
+
+/// `get_json_chunk_from_offset` Gets an XML offset based on the Config boundaries
 /// The data is retured in JSON format.
-pub fn get_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) -> Result<String,String> {
+pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) -> Result<String,String> {
   match file.seek(SeekFrom::Start(offset as u64)) {
-    Err(err) => return Err(format!("get_chunk_from_offset failed: {}",err)),
+    Err(err) => return Err(format!("get_json_chunk_from_offset failed: {}",err)),
     Ok(_) => {
       if cfg.verbosity > 3 {
-        println!("get_chunk_from_offset sought to offset {}", offset);
+        println!("get_json_chunk_from_offset sought to offset {}", offset);
       }
     }
   }
@@ -462,9 +468,13 @@ pub fn write_diff_files(cfg: &Config) -> std::io::Result<()> {
   deleted.sort_unstable();
   let mut file1 = File::open(&cfg.input_filename1)?;
   let mut file2 = File::open(&cfg.input_filename2)?;
+  let mut added_chunks_file = File::create(format!("{}.added",&cfg.input_filename2))?;
   for offset in added {
     // Process Deleted
-    get_chunk_from_offset(&cfg, &mut file1, offset).unwrap();
+    match get_json_chunk_from_offset(&cfg, &mut file1, offset) {
+      Ok(json_chunk) => added_chunks_file.write_all(format!("{}\n", json_chunk).as_bytes())?,
+      Err(err)       => panic!(format!("{}",err)),
+    }
   }
   // Process Modified
   file2.seek(SeekFrom::Start(42))?;
@@ -575,6 +585,12 @@ mod tests {
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>2</li>".to_owned(),6usize)));
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>3</li>".to_owned(),6usize)));
   }
+  #[test]
+  fn it_transforms_xml_to_json() {
+    let input1 = "<li>1</li>".to_owned();
+    assert_eq!(xml_to_json("<li>1</li>".to_owned()),"{li:1}".to_owned());
+  }
+
   #[test]
   fn it_adds_chunks() {
     let file1 = "tests/test1-dup.xml".to_owned();
