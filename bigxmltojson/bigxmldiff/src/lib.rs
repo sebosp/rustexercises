@@ -23,8 +23,10 @@ extern crate rand;
 
 pub mod config;
 pub mod chunkindex;
+pub mod json;
 use config::*;
 use chunkindex::*;
+use json::*;
 
 use std::io::{BufRead,BufReader,SeekFrom};
 use std::io::prelude::*;
@@ -407,41 +409,6 @@ pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<Chun
   }
 }
 
-/// `xml_to_json` returns a JSON version of an XML chunk.
-/// If the XML is not valid returns Err.
-pub fn xml_to_json(data: &String, worker_id_string: &String, verbosity: i8) -> Result<String,String> {
-  let mut inside_tag = false;
-  let mut cur_tag = String::with_capacity(128);
-  let mut cur_tag_content = String::with_capacity(128);
-  for cur_char in data.chars() {
-    if cur_char == '<' {
-      inside_tag = true;
-      continue;
-    }
-    if cur_char == '>' {
-      if verbosity > 3 {
-        println!("WORKER[{}] Found tag '{}'", worker_id_string, cur_tag);
-      }
-      cur_tag_content.truncate(0);
-      cur_tag.truncate(0);
-      inside_tag = false;
-      continue;
-    }
-    if inside_tag {
-      cur_tag.push(cur_char);
-      if verbosity > 3 {
-        println!("WORKER[{}] Adding to cur_tag: '{}': {}", worker_id_string, cur_char, cur_tag);
-      }
-    } else {
-      cur_tag_content.push(cur_char);
-      if verbosity > 3 {
-        println!("WORKER[{}] Adding to cur_tag_content: '{}': {}", worker_id_string, cur_char, cur_tag_content);
-      }
-    }
-  }
-  Ok("".to_owned())
-}
-
 /// `get_json_chunk_from_offset` Gets an XML offset based on the Config boundaries
 /// The data is retured in JSON format.
 pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) -> Result<String,String> {
@@ -613,29 +580,6 @@ mod tests {
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>1</li>".to_owned(),32usize)));
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>2</li>".to_owned(),6usize)));
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>3</li>".to_owned(),6usize)));
-  }
-  #[test]
-  fn it_transforms_xml_to_json() {
-    assert_eq!(
-      xml_to_json("<div><li>1</li></div>".to_owned(),"TEST".to_owned(),0i8),
-      Ok("{\"div\":{\"li\":\"1\"}}".to_owned())
-    );
-    assert_eq!(
-      xml_to_json("<li>1</li>".to_owned(),"TEST".to_owned(),0i8),
-      Ok("{\"li\":\"1\"}".to_owned())
-    );
-    assert_eq!(
-      xml_to_json("<div><li>1</li><li>2</li></div>".to_owned(),"TEST".to_owned(),0i8),
-      Ok("{\"div\":{\"li\":[\"1\",\"2\"]}}".to_owned())
-    );
-    assert_eq!(
-      xml_to_json("<body><div><li>1</li></div><div><li>2</li></div></body>".to_owned(),"TEST".to_owned(),0i8),
-      Ok("{\"items\":{\"div\":[{\"li\":\"1\"},{\"li\":\"2\"}]}}".to_owned())
-    );
-    assert_eq!(
-      xml_to_json("<div><li>1</li><lt>a</lt><li>2</li></div>".to_owned(),"TEST".to_owned(),0i8),
-      Ok("{\"div\":{\"li\":[\"1\",\"2\"],\"lt\":\"a\"}}".to_owned())
-    );
   }
 
   #[test]
