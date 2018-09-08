@@ -445,7 +445,8 @@ pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) 
     reader.consume(length);
   }
   if full_record_found {
-    Ok(xml_chunk)
+    let json = JsonData::from_xml_string(&xml_chunk,&"XXX".to_owned(),cfg.verbosity)?;
+    Ok(json.to_string())
   } else {
     Err(format!("Unable to find a chuck at offset {}",offset))
   }
