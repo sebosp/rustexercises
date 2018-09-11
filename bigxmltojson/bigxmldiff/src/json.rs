@@ -82,22 +82,24 @@ impl JsonData {
   }
   /// `insert` a string at the current level, if the current level has a string
   /// it transforms it into an JsonData::Array
-  pub fn insert(&mut self, input: String) {
+  pub fn insert(&mut self, input: String) -> Self {
     match self {
       JsonData::Empty => {
-        *self = JsonData::Atomic(input);
+        JsonData::Atomic(input)
       },
       JsonData::Atomic(data) => {
-        self = JsonData::Array(vec![
+        JsonData::Array(vec![
           Box::new(JsonData::Atomic(data.to_string())),
           Box::new(JsonData::Atomic(input))
-        ]);
+        ])
       },
       JsonData::Array(array_data) => {
         array_data.push(Box::new(JsonData::Atomic(input)));
-      }
+        JsonData::Array(*array_data)
+      },
       JsonData::Hash(array_kvpair) => {
         array_kvpair.push((input, Box::new(JsonData::Empty)));
+        JsonData::Hash(*array_kvpair)
       }
     }
   }
