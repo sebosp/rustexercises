@@ -9,8 +9,8 @@ use std::fmt;
 /// The only supported atomic type is String
 pub enum JsonDataType {
  Empty,
- Array(Vec<Box<JsonData>>),
- Object(Vec<(String,Box<JsonData>)>),
+ Array(Vec<JsonData>),
+ Object(Vec<(String,JsonData)>),
  Atomic(String),
 }
 pub struct JsonData {
@@ -19,7 +19,7 @@ pub struct JsonData {
 }
 
 /// Implement the Display Trait for printing.
-impl fmt::Display for JsonDataType {
+impl fmt::Display for JsonData {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f,"{}",self.to_string())
   }
@@ -32,15 +32,15 @@ impl JsonData {
   /// `to_string` returns the string representation of a JsonDataType object.
   pub fn to_string(&self) -> String {
     match *self.data {
-      JsonDataType::Atomic(data) => format!("\"{}\"", data),
-      JsonDataType::Array(array_data) => {
+      JsonDataType::Atomic(ref data) => format!("\"{}\"", data),
+      JsonDataType::Array(ref array_data) => {
         format!("[{}]",
                 array_data
                 .iter()
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>().join(","))
       }
-      JsonDataType::Object(obj_data) => {
+      JsonDataType::Object(ref obj_data) => {
         format!("{{{}}}",
                 obj_data
                 .iter()
@@ -87,43 +87,52 @@ impl JsonData {
   /// `init` a string at the current level, if the current level has a String
   /// already it transforms the enum to JsonDataType::Array
   pub fn init(&mut self, input: String) {
+    let mut should_update = false;
+    let mut temp = JsonData::new();
     match *self.data {
       JsonDataType::Empty => {
-        self.data = Box::new(JsonDataType::Atomic(input));
+        should_update = true;
+        temp.data = Box::new(JsonDataType::Atomic(input));
       },
-      JsonDataType::Atomic(data) => {
-        self.data = Box::new(
+      JsonDataType::Atomic(ref mut data) => {
+        should_update = true;
+        temp.data = Box::new(
           JsonDataType::Array(vec![
-            Box::new(JsonData{ data: JsonDataType::Atomic(data)}),
-            Box::new(JsonData{ data: JsonDataType::Atomic(input)})
+            JsonData{ data: Box::new(JsonDataType::Atomic(data.to_owned()))},
+            JsonData{ data: Box::new(JsonDataType::Atomic(input))}
           ])
         );
       },
       _ => {},
     }
+    if should_update {
+      self.data = temp.data;
+    }
   }
   /// `push_value` to the current hierarchy.
   pub fn push_value(&mut self, input: String) {
-    match self {
-      _ => {},
+    match *self.data {
       JsonDataType::Array(ref mut array_data) => {
-        array_data.push(Box::new(JsonDataType::Atomic(input)));
+        array_data.push(JsonData{ data: Box::new(JsonDataType::Atomic(input))});
       },
       JsonDataType::Object(ref mut obj_data) => {
-        obj_data.push((input, Box::new(JsonDataType::Empty)));
-      }
+        obj_data.push((input, JsonData{ data: Box::new(JsonDataType::Empty)}));
+        //obj_data.1.insert(input);
+      },
+      _ => {},
     }
   }
   /// `insert` to the current hierarchy.
   pub fn insert(&mut self, input: String) {
-    let should_init = match self {
-      JsonDataType::Empty | JsonDataType::Atomic(_) => { true },
+    let should_init = match *self.data {
+      JsonDataType::Empty => { true },
+      JsonDataType::Atomic(_) => { true },
       _ => false,
     };
     if should_init {
       self.init(input);
     } else {
-      self = self.insert(input);
+      self.push_value(input);
     }
   }
 }
@@ -134,125 +143,126 @@ mod tests {
   #[ignore]
   fn it_transforms_xml_to_json() {
     assert_eq!(
-      JsonDataType::from_xml_string(&"<div><li>1</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
       "{\"div\":{\"li\":\"1\"}}".to_owned()
     );
     assert_eq!(
-      JsonDataType::from_xml_string(&"<li>1</li>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<li>1</li>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
       "{\"li\":\"1\"}".to_owned()
     );
     assert_eq!(
-      JsonDataType::from_xml_string(&"<div><li>1</li><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
       "{\"div\":{\"li\":[\"1\",\"2\"]}}".to_owned()
     );
     assert_eq!(
-      JsonDataType::from_xml_string(&"<body><div><li>1</li></div><div><li>2</li></div></body>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<body><div><li>1</li></div><div><li>2</li></div></body>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
       "{\"items\":{\"div\":[{\"li\":\"1\"},{\"li\":\"2\"}]}}".to_owned()
     );
     assert_eq!(
-      JsonDataType::from_xml_string(&"<div><li>1</li><lt>a</lt><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li><lt>a</lt><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
       "{\"div\":{\"li\":[\"1\",\"2\"],\"lt\":\"a\"}}".to_owned()
     );
   }
   #[test]
   fn it_transforms_to_string() {
     // Technically this could be invalid JSON but not for our simple case.
-    let simple_string = JsonDataType::Atomic("String".to_owned());
+    let simple_string = JsonData{ data: Box::new(JsonDataType::Atomic("String".to_owned()))};
     assert_eq!(simple_string.to_string(),"\"String\"".to_owned());
-    let simple_array1 =
+    let simple_array1 = JsonData{ data: Box::new(
       JsonDataType::Array(
         vec![
-          Box::new(JsonDataType::Atomic("String".to_owned())),
+          JsonData{ data: Box::new(JsonDataType::Atomic("String".to_owned()))},
         ]
-      );
+      ))};
     assert_eq!(simple_array1.to_string(),"[\"String\"]".to_owned());
-    let simple_array2 =
+    let simple_array2 = JsonData{ data: Box::new(
       JsonDataType::Array(
         vec![
-          Box::new(JsonDataType::Atomic("String1".to_owned())),
-          Box::new(JsonDataType::Atomic("String2".to_owned())),
+          JsonData{ data: Box::new(JsonDataType::Atomic("String1".to_owned()))},
+          JsonData{ data: Box::new(JsonDataType::Atomic("String2".to_owned()))},
         ]
-      );
+      ))};
     assert_eq!(simple_array2.to_string(),"[\"String1\",\"String2\"]".to_owned());
-    let simple_obj =
+    let simple_obj = JsonData{ data: Box::new(
       JsonDataType::Object(
-        vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value".to_owned())))]
-      );
+        vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value".to_owned()))})]
+      ))};
     assert_eq!(simple_obj.to_string(),"{\"Key\":\"Value\"}".to_owned());
-    let multi_kv =
+    let multi_kv = JsonData{ data: Box::new(
       JsonDataType::Object(
         vec![
-          ("Key1".to_owned(), Box::new(JsonDataType::Atomic("Value1".to_owned()))),
-          ("Key2".to_owned(), Box::new(JsonDataType::Atomic("Value2".to_owned())))
+          ("Key1".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))}),
+          ("Key2".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))})
         ]
-      );
+      ))};
     assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":\"Value2\"}".to_owned());
-    let array_contains_objs =
+    let array_contains_objs = JsonData{ data: Box::new(
       JsonDataType::Array(
         vec![
-          Box::new(JsonDataType::Object(
-            vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value1".to_owned())))]
-          )),
-          Box::new(JsonDataType::Object(
-            vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value2".to_owned())))])
-          ),
+          JsonData{ data: Box::new(JsonDataType::Object(
+            vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))})]
+          ))},
+          JsonData{ data: Box::new(JsonDataType::Object(
+            vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))})])
+          )},
         ]
-      );
+      ))};
     assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"}]".to_owned());
-    let obj_contains_array =
+    let obj_contains_array = JsonData{ data: Box::new(
       JsonDataType::Object(
-        vec![("Key".to_owned(), Box::new(JsonDataType::Array(
+        vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Array(
           vec![
-            Box::new(JsonDataType::Atomic("Value1".to_owned())),
-            Box::new(JsonDataType::Atomic("Value2".to_owned()))
-          ]))
+            JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))},
+            JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))}
+          ]))}
         )]
-      );
+      ))};
     assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"]}".to_owned());
   }
   #[test]
   fn it_inserts() {
     // Technically this could be invalid JSON but not for our simple case.
-    let mut simple_string = JsonDataType::new();
-    simple_string.insert("String".to_owned());
-    assert_eq!(simple_string.to_string(),"\"String\"".to_owned());
+    let mut simple_string = JsonData::new();
+    simple_string.insert("String1".to_owned());
+    assert_eq!(simple_string.to_string(),"\"String1\"".to_owned());
     let mut simple_array2 = simple_string;
-    simple_array2.insert("String".to_owned());
+    simple_array2.insert("String2".to_owned());
     assert_eq!(simple_array2.to_string(),"[\"String1\",\"String2\"]".to_owned());
-    let simple_obj =
+    let simple_obj = JsonData{ data: Box::new(
       JsonDataType::Object(
-        vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value".to_owned())))]
-      );
-    assert_eq!(simple_obj.to_string(),"{\"Key\":\"Value\"}".to_owned());
-    let multi_kv =
+        vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value".to_owned()))})]
+      ))};
+    /// XXX: Continue
+    assert_eq!(simple_obj.to_string(),"{\"Key\":[\"Value\"]}".to_owned());
+    let multi_kv = JsonData{ data: Box::new(
       JsonDataType::Object(
         vec![
-          ("Key1".to_owned(), Box::new(JsonDataType::Atomic("Value1".to_owned()))),
-          ("Key2".to_owned(), Box::new(JsonDataType::Atomic("Value2".to_owned())))
+          ("Key1".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))}),
+          ("Key2".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))})
         ]
-      );
+      ))};
     assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":\"Value2\"}".to_owned());
-    let array_contains_objs =
+    let array_contains_objs = JsonData{ data: Box::new(
       JsonDataType::Array(
         vec![
-          Box::new(JsonDataType::Object(
-            vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value1".to_owned())))]
-          )),
-          Box::new(JsonDataType::Object(
-            vec![("Key".to_owned(), Box::new(JsonDataType::Atomic("Value2".to_owned())))])
-          ),
+          JsonData{ data: Box::new(JsonDataType::Object(
+            vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))})]
+          ))},
+          JsonData{ data: Box::new(JsonDataType::Object(
+            vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))})])
+          )},
         ]
-      );
+      ))};
     assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"}]".to_owned());
-    let obj_contains_array =
+    let obj_contains_array = JsonData{ data: Box::new(
       JsonDataType::Object(
-        vec![("Key".to_owned(), Box::new(JsonDataType::Array(
+        vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Array(
           vec![
-            Box::new(JsonDataType::Atomic("Value1".to_owned())),
-            Box::new(JsonDataType::Atomic("Value2".to_owned()))
-          ]))
+            JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))},
+            JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))}
+          ]))}
         )]
-      );
+      ))};
     assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"]}".to_owned());
   }
 }
