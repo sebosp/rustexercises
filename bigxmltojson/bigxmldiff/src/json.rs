@@ -84,30 +84,36 @@ impl JsonData {
     }
     Ok(JsonData { data: Box::new(JsonDataType::Atomic("Unimplemented".to_owned())) })
   }
-  /// `init` a string at the current level, if the current level has a String
-  /// already it transforms the enum to JsonDataType::Array
-  pub fn init(&mut self, input: String) {
-    let mut should_update = false;
+  //// `to_array` transforms a JsonDataType Atomic into an Array preserving its value.
+  /// TODO: Figure out how to move the data instead of cloning it.
+  pub fn transform_to_array(&mut self) {
     let mut temp = JsonData::new();
     match *self.data {
-      JsonDataType::Empty => {
-        should_update = true;
-        temp.data = Box::new(JsonDataType::Atomic(input));
-      },
       JsonDataType::Atomic(ref mut data) => {
-        should_update = true;
         temp.data = Box::new(
           JsonDataType::Array(vec![
             JsonData{ data: Box::new(JsonDataType::Atomic(data.to_owned()))},
-            JsonData{ data: Box::new(JsonDataType::Atomic(input))}
           ])
         );
       },
-      _ => {},
+      _ => {
+        panic!("transform_to_array supports only Atomic JsonDataType");
+      },
     }
-    if should_update {
-      self.data = temp.data;
+    self.data = temp.data;
+  }
+  /// `transform_to_string` an entry currently Empty
+  pub fn transform_to_string(&mut self, input: String) {
+    let mut temp = JsonData::new();
+    match *self.data {
+      JsonDataType::Empty => {
+        temp.data = Box::new(JsonDataType::Atomic(input));
+      },
+      _ => {
+        panic!("transform_to_string supports only Empty JsonDataType");
+      },
     }
+    self.data = temp.data;
   }
   /// `push_value` to the current hierarchy.
   pub fn push_value(&mut self, input: String) {
@@ -116,24 +122,30 @@ impl JsonData {
         array_data.push(JsonData{ data: Box::new(JsonDataType::Atomic(input))});
       },
       JsonDataType::Object(ref mut obj_data) => {
-        obj_data.push((input, JsonData{ data: Box::new(JsonDataType::Empty)}));
-        //obj_data.1.insert(input);
+        let last_index = obj_data.len();
+        //obj_data.push((input, JsonData{ data: Box::new(JsonDataType::Empty)}));
+        obj_data[last_index-1].1.insert(input);
       },
       _ => {},
     }
   }
   /// `insert` to the current hierarchy.
   pub fn insert(&mut self, input: String) {
-    let should_init = match *self.data {
-      JsonDataType::Empty => { true },
-      JsonDataType::Atomic(_) => { true },
-      _ => false,
+    match *self.data {
+      JsonDataType::Empty => {
+        self.transform_to_string(input);
+      },
+      JsonDataType::Atomic(_) => {
+        self.transform_to_array();
+        self.push_value(input);
+      },
+      JsonDataType::Array(_) => {
+        self.push_value(input);
+      },
+      JsonDataType::Object(_) => {
+        self.push_value(input);
+      },
     };
-    if should_init {
-      self.init(input);
-    } else {
-      self.push_value(input);
-    }
   }
 }
 #[cfg(test)]
@@ -228,21 +240,22 @@ mod tests {
     let mut simple_array2 = simple_string;
     simple_array2.insert("String2".to_owned());
     assert_eq!(simple_array2.to_string(),"[\"String1\",\"String2\"]".to_owned());
-    let simple_obj = JsonData{ data: Box::new(
+    let mut simple_obj = JsonData{ data: Box::new(
       JsonDataType::Object(
         vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value".to_owned()))})]
       ))};
-    /// XXX: Continue
-    assert_eq!(simple_obj.to_string(),"{\"Key\":[\"Value\"]}".to_owned());
-    let multi_kv = JsonData{ data: Box::new(
+    simple_obj.insert("Value2".to_owned());
+    assert_eq!(simple_obj.to_string(),"{\"Key\":[\"Value\",\"Value2\"]}".to_owned());
+    let mut multi_kv = JsonData{ data: Box::new(
       JsonDataType::Object(
         vec![
           ("Key1".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value1".to_owned()))}),
-          ("Key2".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2".to_owned()))})
+          ("Key2".to_owned(), JsonData{ data: Box::new(JsonDataType::Atomic("Value2.0".to_owned()))})
         ]
       ))};
-    assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":\"Value2\"}".to_owned());
-    let array_contains_objs = JsonData{ data: Box::new(
+    multi_kv.insert("Value2.1".to_owned());
+    assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":[\"Value2.0\",\"Value2.1\"]}".to_owned());
+    let mut array_contains_objs = JsonData{ data: Box::new(
       JsonDataType::Array(
         vec![
           JsonData{ data: Box::new(JsonDataType::Object(
@@ -253,8 +266,9 @@ mod tests {
           )},
         ]
       ))};
-    assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"}]".to_owned());
-    let obj_contains_array = JsonData{ data: Box::new(
+    array_contains_objs.insert("Value".to_owned());
+    assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"},\"Value\"]".to_owned());
+    let mut obj_contains_array = JsonData{ data: Box::new(
       JsonDataType::Object(
         vec![("Key".to_owned(), JsonData{ data: Box::new(JsonDataType::Array(
           vec![
@@ -263,6 +277,7 @@ mod tests {
           ]))}
         )]
       ))};
-    assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"]}".to_owned());
+    obj_contains_array.insert("Value3".to_owned());
+    assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"],\"Value3\"}".to_owned());
   }
 }
