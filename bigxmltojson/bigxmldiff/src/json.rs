@@ -47,7 +47,7 @@ impl JsonData {
                 .map(|(k,v)| format!("\"{}\":{}",k,v.to_string()))
                 .collect::<Vec<_>>().join(","))
       },
-      JsonDataType::Empty => "{}".to_owned(),
+      JsonDataType::Empty => "null".to_owned(),
     }
   }
   /// `from_xml_string` returns a JSON version of an XML string.
@@ -56,6 +56,7 @@ impl JsonData {
     let mut inside_tag = false;
     let mut cur_tag = String::with_capacity(128);
     let mut cur_tag_content = String::with_capacity(128);
+    let mut res = JsonData::new();
     for cur_char in data.chars() {
       if cur_char == '<' {
         inside_tag = true;
@@ -64,6 +65,15 @@ impl JsonData {
       if cur_char == '>' {
         if verbosity > 3 {
           println!("WORKER[{}] Found tag '{}'", worker_id_string, cur_tag);
+        }
+        if cur_tag.starts_with('/') {
+          cur_tag.drain(..1);
+          println!("WORKER[{}] Current tag '{{{}:{}}} '", worker_id_string, cur_tag, cur_tag_content);
+          res.insert_kv(cur_tag.clone(),cur_tag_content.clone());
+          if cur_tag_content.len() > 0 {
+            // XXX: Continue
+          } else {
+          }
         }
         cur_tag_content.truncate(0);
         cur_tag.truncate(0);
@@ -87,30 +97,32 @@ impl JsonData {
   //// `to_array` transforms a JsonDataType Atomic into an Array preserving its value.
   /// TODO: Figure out how to move the data instead of cloning it.
   pub fn transform_to_array(&mut self) {
-    let mut temp = JsonData::new();
-    match *self.data {
-      JsonDataType::Atomic(ref mut data) => {
-        temp.data = Box::new(
-          JsonDataType::Array(vec![
-            JsonData{ data: Box::new(JsonDataType::Atomic(data.to_owned()))},
-          ])
-        );
-      },
-      _ => {
-        panic!("transform_to_array supports only Atomic JsonDataType");
-      },
-    }
-    self.data = temp.data;
+    let temp = JsonData {
+      data: Box::new(JsonDataType::Array(vec![*self]))
+    };
+    self = &mut temp;
+//    match *self.data {
+//      JsonDataType::Atomic(ref mut data) => {
+//        temp.data = Box::new(
+//          JsonDataType::Array(vec![
+//            JsonData{ data: Box::new(JsonDataType::Atomic(data.to_owned()))},
+//          ])
+//        );
+//      },
+//      _ => {
+//        panic!("transform_to_array supports only Atomic JsonDataType");
+//      },
+//    }
   }
-  /// `transform_to_string` an entry currently Empty
-  pub fn transform_to_string(&mut self, input: String) {
+  /// `transform_to_atomic` an entry currently Empty variant to an Atomic variant.
+  pub fn transform_to_atomic(&mut self, input: String) {
     let mut temp = JsonData::new();
     match *self.data {
       JsonDataType::Empty => {
         temp.data = Box::new(JsonDataType::Atomic(input));
       },
       _ => {
-        panic!("transform_to_string supports only Empty JsonDataType");
+        panic!("transform_to_atomic supports only Empty JsonDataType");
       },
     }
     self.data = temp.data;
@@ -129,13 +141,14 @@ impl JsonData {
       _ => {},
     }
   }
-  /// `insert` to the current hierarchy.
+  /// `insert` to the current level
   pub fn insert(&mut self, input: String) {
     match *self.data {
       JsonDataType::Empty => {
-        self.transform_to_string(input);
+        self.transform_to_atomic(input);
       },
       JsonDataType::Atomic(_) => {
+        // How does one decide if something is to be transformed to Array or to Object?
         self.transform_to_array();
         self.push_value(input);
       },
@@ -143,35 +156,55 @@ impl JsonData {
         self.push_value(input);
       },
       JsonDataType::Object(_) => {
-        self.push_value(input);
+        panic!("Unsupported type for insert, use insert_kv");
       },
     };
+  }
+  /// `insert_kv` Inserts a Key/Value pair.
+  pub fn insert_kv(&mut self, input_key: String, input_value: String) {
+    // If the key exists, add the input_value to the key.
+    match *self.data {
+      JsonDataType::Object(ref mut kv_array) => {
+        for (k,v) in kv_array.iter_mut() {
+          if *k == input_key {
+            v.insert(input_value.to_owned());
+            return;
+          }
+        }
+        kv_array.push((input_key.to_owned(), JsonData {
+          data: Box::new(JsonDataType::Atomic(input_value.to_owned()))
+        }));
+      },
+      _ => {
+        panic!("Unsupported type for insert_kv, use insert");
+      },
+    }
   }
 }
 #[cfg(test)]
 mod tests {
   use super::*;
   #[test]
-  #[ignore]
-  fn it_transforms_xml_to_json() {
+  fn it_transforms_from_xml_string() {
+    let verbosity = 4i8;
     assert_eq!(
-      JsonData::from_xml_string(&"<div><li>1</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li></div>".to_owned(),&"TEST".to_owned(),verbosity).unwrap().to_string(),
       "{\"div\":{\"li\":\"1\"}}".to_owned()
     );
     assert_eq!(
-      JsonData::from_xml_string(&"<li>1</li>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<li>1</li>".to_owned(),&"TEST".to_owned(),verbosity).unwrap().to_string(),
       "{\"li\":\"1\"}".to_owned()
     );
     assert_eq!(
-      JsonData::from_xml_string(&"<div><li>1</li><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li><li>2</li></div>".to_owned(),&"TEST".to_owned(),verbosity).unwrap().to_string(),
       "{\"div\":{\"li\":[\"1\",\"2\"]}}".to_owned()
     );
     assert_eq!(
-      JsonData::from_xml_string(&"<body><div><li>1</li></div><div><li>2</li></div></body>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<body><div><li>1</li></div><div><li>2</li></div></body>".to_owned(),&"TEST".to_owned(),verbosity).unwrap().to_string(),
       "{\"items\":{\"div\":[{\"li\":\"1\"},{\"li\":\"2\"}]}}".to_owned()
     );
     assert_eq!(
-      JsonData::from_xml_string(&"<div><li>1</li><lt>a</lt><li>2</li></div>".to_owned(),&"TEST".to_owned(),0i8).unwrap().to_string(),
+      JsonData::from_xml_string(&"<div><li>1</li><lt>a</lt><li>2</li></div>".to_owned(),&"TEST".to_owned(),verbosity).unwrap().to_string(),
       "{\"div\":{\"li\":[\"1\",\"2\"],\"lt\":\"a\"}}".to_owned()
     );
   }
@@ -278,6 +311,6 @@ mod tests {
         )]
       ))};
     obj_contains_array.insert("Value3".to_owned());
-    assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"],\"Value3\"}".to_owned());
+    assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\",\"Value3\"]}".to_owned());
   }
 }
