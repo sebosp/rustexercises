@@ -13,6 +13,18 @@ pub enum JsonDataType {
  Object(Vec<(String,JsonData)>),
  Atomic(String),
 }
+impl JsonDataType {
+  /// `into_array` transforms a JsonDataType into an Array preserving its content.
+  pub fn into_array(data: JsonDataType) -> Box<JsonDataType> {
+    Box::new(JsonDataType::Array(
+      vec![
+        JsonData {
+          data: Box::new(data)
+        }
+      ]
+    ))
+  }
+}
 pub struct JsonData {
   pub data: Box<JsonDataType>,
   //pub parent: Box<JsonDataType>,
@@ -94,13 +106,8 @@ impl JsonData {
     }
     Ok(JsonData { data: Box::new(JsonDataType::Atomic("Unimplemented".to_owned())) })
   }
-  //// `to_array` transforms a JsonDataType Atomic into an Array preserving its value.
-  /// TODO: Figure out how to move the data instead of cloning it.
-  pub fn transform_to_array(&mut self) {
-    let temp = JsonData {
-      data: Box::new(JsonDataType::Array(vec![*self]))
-    };
-    self = &mut temp;
+//  /// `into_array` transforms a JsonDataType Atomic into an Array preserving its value.
+//  pub fn into_array(self) -> Self {
 //    match *self.data {
 //      JsonDataType::Atomic(ref mut data) => {
 //        temp.data = Box::new(
@@ -110,10 +117,10 @@ impl JsonData {
 //        );
 //      },
 //      _ => {
-//        panic!("transform_to_array supports only Atomic JsonDataType");
+//        panic!("into_array supports only Atomic JsonDataType");
 //      },
 //    }
-  }
+//  }
   /// `transform_to_atomic` an entry currently Empty variant to an Atomic variant.
   pub fn transform_to_atomic(&mut self, input: String) {
     let mut temp = JsonData::new();
@@ -143,14 +150,17 @@ impl JsonData {
   }
   /// `insert` to the current level
   pub fn insert(&mut self, input: String) {
-    match *self.data {
+    let mut temp = JsonData::new();
+    let mut new_data = &*self.data;
+    match new_data {
       JsonDataType::Empty => {
         self.transform_to_atomic(input);
       },
-      JsonDataType::Atomic(_) => {
-        // How does one decide if something is to be transformed to Array or to Object?
-        self.transform_to_array();
-        self.push_value(input);
+      JsonDataType::Atomic(ref mut current_data) => {
+        // XXX: How does one decide if something is to be transformed to Array or to Object?
+        self.transform_to_array(input);
+        new_data = &JsonDataType::into_array(JsonDataType::Atomic(current_data));
+        temp.push_value(input);
       },
       JsonDataType::Array(_) => {
         self.push_value(input);
