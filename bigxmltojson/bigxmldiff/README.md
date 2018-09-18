@@ -48,4 +48,43 @@ The data returned to the broker thread are added to a BTreeMap. Containing:
 - Checksum
 
 ## Method of comparison
+An .idx file is created for each XML and the added/deleted/modified entries
+are recognized based on the keys.
+To leverage the reading of the file sequentially, fseek is isued on the stored
+offset, a sorted versio of the added/deleted/modified calculation should be
+cheap to perform.
 
+## Delta XML chunk offset reader
+Once a chunk has been identified as changed, the chunk is found from the XML
+based on the offset. The chunk is sent to as a task to the ZMQ Router.
+
+## JSON serializing
+Based on `concurrency`, several threads are spawned. Each reads a chunk and
+transforms it into a JSON reading the XML little by little.
+
+## Future thoughts
+A state machine
+Several State Machines as the OCW601 exercises can be implemented out of this:
+- A big file reader in chunks.
+  - Input: A "big" file, an chunk size.
+  - State: Offset
+  - Output: A chunk string. Is an offset end needed?
+- An XML chunk key identifier.
+  - Input: A chunk string
+  - State: None
+  - Output: The ID of the XML chunk.
+- An XML chunk checksum calculator.
+  - Input: A chunk string
+  - State: None
+  - Output: The checksum of the XML chunk.
+- The ZMQ Local Thread Router task distributor, eventually replaced by Tokio.
+  - Input: A "task".
+  - State:
+    - The threads
+    - The vector of tasks, maybe ZMTP.
+    - The UUI of each task for the client requests.
+  - Output: The result of the tasks.
+- A ZMQ Router State Machine that binds somewhere
+  - Input: A task
+  - State: Depends on each module.
+  - Output: Returns something to ZMQ Router.
