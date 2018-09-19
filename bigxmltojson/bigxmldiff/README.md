@@ -86,5 +86,5 @@ Several State Machines as the OCW601 exercises can be implemented out of this:
   - Output: The result of the tasks.
 - A ZMQ Router State Machine that binds somewhere
   - Input: A task
-  - State: Depends on each module.
-  - Output: Returns something to ZMQ Router.
+  - State: The ZMQ ID of the Worker. The UUID of the task
+  - Output: Returns the result and UUID to the ZMQ Router.
