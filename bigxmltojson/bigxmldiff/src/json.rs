@@ -2,6 +2,8 @@
 
 use std::fmt;
 use std::rc::Rc;
+use std::cell::RefCell;
+use std::cell::Weak;
 /// `JsonDataType` structure contains the representation of KV pairs and internal arrays.
 /// Examples of data:
 /// {"key":"string"}
@@ -15,8 +17,8 @@ pub enum JsonDataType {
  Atomic(String),
 }
 pub struct JsonData {
-  pub data: Rc<JsonDataType>,
-  //pub parent: WeakSomething<JsonDataType>,
+  pub data: Rc<RefCell<JsonDataType>>,
+  pub parent: Option<Weak<RefCell<JsonDataType>>>,
 }
 
 /// Implement the Display Trait for printing.
@@ -28,7 +30,7 @@ impl fmt::Display for JsonData {
 
 impl JsonData {
   pub fn new() -> Self {
-    JsonData { data: Rc::new( JsonDataType::Empty )}
+    JsonData { data: Rc::new(RefCell::new(JsonDataType::Empty))}
   }
   /// `to_string` returns the string representation of a JsonDataType object.
   pub fn to_string(&self) -> String {
@@ -151,7 +153,8 @@ impl JsonData {
   /// `insert_kv` Inserts a Key/Value pair.
   pub fn insert_kv(&mut self, input_key: String, input_value: String) {
     // If the key exists, add the input_value to the key.
-    match *self.data {
+    let data = &*self.data;
+    match data {
       JsonDataType::Object(ref mut kv_array) => {
         for (k,v) in kv_array.iter_mut() {
           if *k == input_key {
