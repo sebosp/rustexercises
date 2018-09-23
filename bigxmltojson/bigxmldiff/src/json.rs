@@ -11,12 +11,12 @@ use std::cell::RefCell;
 /// The only supported atomic type is String
 pub enum JsonDataType {
   Empty,
-  Array(Vec<JsonData>),
-  Object(Vec<(String,JsonData)>),
-  Atomic(String),
+  Array(RefCell<Rc<Vec<RefCell<Rc<JsonData>>>>>),
+  Object(RefCell<Rc<Vec<(String,RefCell<Rc<JsonData>>)>>>),
+  Atomic(RefCell<Rc<String>>),
 }
 pub struct JsonData {
-  pub data: RefCell<Rc<JsonDataType>>,
+  pub data: JsonDataType,
   pub parent: RefCell<Weak<JsonData>>,
 }
 
@@ -32,7 +32,7 @@ impl JsonData {
   /// XXX: Should this be Rc<> ?
   pub fn new() -> Self {
     JsonData {
-      data: RefCell::new(Rc::new(JsonDataType::Empty)),
+      data: JsonDataType::Empty,
       parent: RefCell::new(Weak::new()),
     }
   }
@@ -40,45 +40,59 @@ impl JsonData {
   /// an input String.
   pub fn new_atomic_from_string(input: String) -> JsonData {
     JsonData {
-      data: RefCell::new(Rc::new(JsonDataType::Atomic(input))),
+      data: JsonDataType::Atomic(RefCell::new(Rc::new(input))),
       parent: RefCell::new(Weak::new()),
     }
   }
   /// `array_wrap` wraps a JsonData into JsonDataType Array
-  pub fn array_wrap(&self) -> Rc<JsonData> {
-    let res = Rc::new(JsonData {
-      data: RefCell::new(Rc::new(JsonDataType::Array(vec![*self]))),
-      parent: RefCell::new(Weak::new()),
-    });
-//    *data.parent.borrow_mut() = Rc::downgrade(&res);
-    res
+  pub fn array_wrap(&mut self) {
+    self.data = 
+      JsonDataType::Array(
+        RefCell::new(
+          Rc::new(vec![RefCell::new(Rc::new(*self))
+//            JsonData {
+//              data: self.data,
+//              parent: RefCell::new(Weak::new()),
+//            }
+          ])
+        )
+      );
   }
   /// `obj_wrap` wraps a JsonData into JsonDataType Array
-  pub fn obj_wrap(&self, key: String) -> Rc<JsonData> {
-    let res = Rc::new(JsonData {
-      data: RefCell::new(Rc::new(JsonDataType::Object(vec![(key,*self)]))),
-      parent: RefCell::new(Weak::new()),
-    });
-//    *data.parent.borrow_mut() = Rc::downgrade(&res);
-    res
+  pub fn obj_wrap(&mut self, key: String) {
+    self.data = JsonDataType::Object(
+      RefCell::new(
+        Rc::new(
+          vec![
+            (key,RefCell::new(Rc::new(*self))
+//               JsonData {
+//                data: RefCell::new(self),
+//                parent: RefCell::new(Weak::new()),
+//              }
+            )
+          ]
+        )
+      )
+    );
   }
   /// `to_string` returns the string representation of a JsonDataType object.
   pub fn to_string(&self) -> String {
-    let data = **self.data.borrow();
-    match data {
-      JsonDataType::Atomic(ref data) => format!("\"{}\"", data),
-      JsonDataType::Array(ref array_data) => {
+    match self.data {
+      JsonDataType::Atomic(data) => format!("\"{}\"", **data.borrow()),
+      JsonDataType::Array(array_data) => {
         format!("[{}]",
                 array_data
+                .borrow()
                 .iter()
-                .map(|s| s.to_string())
+                .map(|s| s.borrow().to_string())
                 .collect::<Vec<_>>().join(","))
       }
-      JsonDataType::Object(ref obj_data) => {
+      JsonDataType::Object(obj_data) => {
         format!("{{{}}}",
                 obj_data
+                .borrow()
                 .iter()
-                .map(|(k,v)| format!("\"{}\":{}",k,v.to_string()))
+                .map(|(k,v)| format!("\"{}\":{}",k,v.borrow().to_string()))
                 .collect::<Vec<_>>().join(","))
       },
       JsonDataType::Empty => "null".to_owned(),
@@ -126,54 +140,48 @@ impl JsonData {
         }
       }
     }
-    Ok(JsonData {
-      data: RefCell::new(Rc::new(JsonDataType::Atomic("Unimplemented".to_string()))),
-      parent: RefCell::new(Weak::new())
-    })
+    Ok(JsonData::new_atomic_from_string("Unimplemented".to_string()))
   }
   /// `transform_to_atomic` an entry currently Empty variant to an Atomic variant.
-  pub fn transform_to_atomic(self, input: String) {
-    let data = **self.data.borrow_mut();
-    match data {
+  pub fn transform_to_atomic(&self, input: String) -> Result<(),String> {
+    match self.data {
       JsonDataType::Empty => {
-        data = JsonDataType::Atomic(input)
+        self.data = JsonDataType::Atomic(RefCell::new(Rc::new(input)));
+        Ok(())
       },
       _ => {
-        panic!("transform_to_atomic supports only Empty JsonDataType");
+        Err("transform_to_atomic supports only Empty JsonDataType".to_owned())
       },
     }
   }
   /// `push_value` to the current hierarchy.
-  pub fn push_value(&mut self, input: String) {
-    let data = **self.data.borrow_mut();
-    match data {
-      JsonDataType::Array(ref mut array_data) => {
-        array_data.push(JsonData::new_atomic_from_string(input));
+  pub fn push_value(&self, input: String) {
+    match self.data {
+      JsonDataType::Array(array_ref) => {
+        array_ref.borrow_mut().push(RefCell::new(Rc::new(JsonData::new_atomic_from_string(input))));
       },
-      JsonDataType::Object(ref mut obj_data) => {
+      JsonDataType::Object(obj_ref) => {
+        let obj_data = obj_ref.borrow_mut();
         let last_index = obj_data.len();
         //obj_data.push((input, JsonData{ data: Rc::new(JsonDataType::Empty)}));
-        obj_data[last_index-1].1.insert(input);
+        obj_data[last_index-1].1.borrow_mut().insert(input);
       },
       _ => {},
     }
   }
   /// `insert` to the current level
-  pub fn insert(&mut self, input: String) {
-    let data = **self.data.borrow_mut();
-    match data {
+  pub fn insert(&self, input: String) {
+    match self.data {
       JsonDataType::Empty => {
         self.transform_to_atomic(input);
-        return;
       },
       JsonDataType::Atomic(_) => {
         // XXX: How does one decide if something is to be transformed to Array or to Object?
-        self = self.array_wrap();
+        self.array_wrap();
         self.push_value(input);
       },
       JsonDataType::Array(_) => {
         self.push_value(input);
-        return;
       },
       JsonDataType::Object(_) => {
         panic!("Unsupported type for insert, use insert_kv");
@@ -181,20 +189,18 @@ impl JsonData {
     };
   }
   /// `insert_kv` Inserts a Key/Value pair.
-  pub fn insert_kv(&mut self, input_key: String, input_value: String) {
+  pub fn insert_kv(&self, input_key: String, input_value: String) {
     // If the key exists, add the input_value to the key.
-    let data = &*self.data;
-    match data {
-      JsonDataType::Object(ref mut kv_array) => {
+    match self.data {
+      JsonDataType::Object(kv_array_ref) => {
+        let kv_array = kv_array_ref.borrow_mut();
         for (k,v) in kv_array.iter_mut() {
           if *k == input_key {
-            v.insert(input_value.to_owned());
+            v.borrow_mut().insert(input_value);
             return;
           }
         }
-        kv_array.push((input_key.to_owned(), JsonData {
-          data: Rc::new(JsonDataType::Atomic(input_value.to_owned()))
-        }));
+        kv_array.push((input_key, RefCell::new(Rc::new(JsonData::new_atomic_from_string(input_value)))));
       },
       _ => {
         panic!("Unsupported type for insert_kv, use insert");
