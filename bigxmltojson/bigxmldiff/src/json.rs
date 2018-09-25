@@ -13,7 +13,7 @@ pub enum JsonDataType {
   Empty,
   Atomic(RefCell<String>),
   Array(RefCell<Vec<Rc<JsonData>>>),
-  Object(RefCell<Vec<(String,Rc<JsonData>)>>),
+  Object(RefCell<Vec<(String,RefCell<Rc<JsonData>>)>>),
 }
 pub struct JsonData {
   pub data: JsonDataType,
@@ -63,11 +63,13 @@ impl JsonData {
       RefCell::new(
         vec![
           (key,
-            Rc::new(
-              JsonData {
-                data: self.data,
-                parent: RefCell::new(Weak::new()),
-              }
+            RefCell::new(
+              Rc::new(
+                JsonData {
+                  data: self.data,
+                  parent: RefCell::new(Weak::new()),
+                }
+              )
             )
           )
         ]
@@ -91,7 +93,7 @@ impl JsonData {
                 obj_data
                 .borrow()
                 .iter()
-                .map(|(k,v)| format!("\"{}\":{}",k,v.to_string()))
+                .map(|(k,v)| format!("\"{}\":{}",k,v.borrow().to_string()))
                 .collect::<Vec<_>>().join(","))
       },
       JsonDataType::Empty => "null".to_owned(),
@@ -158,12 +160,12 @@ impl JsonData {
       JsonDataType::Array(array_ref) => {
         array_ref.borrow_mut().push(Rc::new(JsonData::new_atomic_from_string(input)));
       },
-      JsonDataType::Object(ref mut obj_ref) => {
+      JsonDataType::Object(obj_ref) => {
         let obj_data = obj_ref.borrow_mut();
         let last_index = obj_data.len();
         //obj_data.push((input, JsonData{ data: Rc::new(JsonDataType::Empty)}));
-        let inner_object = &obj_data[last_index-1].1;
-        inner_object.insert(input);
+        let inner_obj = &obj_data[last_index-1].1;
+        inner_obj.borrow_mut().insert(input);
       },
       _ => {},
     }
@@ -195,11 +197,11 @@ impl JsonData {
         let kv_array = kv_array_ref.borrow_mut();
         for (k,v) in kv_array.iter_mut() {
           if *k == input_key {
-            v.insert(input_value.to_owned());
+            v.borrow_mut().insert(input_value.to_owned());
             return;
           }
         }
-        kv_array.push((input_key, Rc::new(JsonData::new_atomic_from_string(input_value))));
+        kv_array.push((input_key, RefCell::new(Rc::new(JsonData::new_atomic_from_string(input_value)))));
       },
       _ => {
         panic!("Unsupported type for insert_kv, use insert");
