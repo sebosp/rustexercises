@@ -12,11 +12,11 @@ use std::cell::RefCell;
 pub enum JsonDataType {
   Empty,
   Atomic(RefCell<String>),
-  Array(RefCell<Vec<Rc<JsonData>>>),
-  Object(RefCell<Vec<(String,RefCell<Rc<JsonData>>)>>),
+  Array(RefCell<Vec<JsonData>>),
+  Object(RefCell<Vec<(String,JsonData)>>),
 }
 pub struct JsonData {
-  pub data: JsonDataType,
+  pub data: Rc<JsonDataType>,
   pub parent: RefCell<Weak<JsonData>>,
 }
 
@@ -30,30 +30,55 @@ impl fmt::Display for JsonData {
 impl JsonData {
   /// `new` returns a new JsonData structure.
   /// XXX: Should this be Rc<> ?
+  /// # Example
+  /// ```
+  /// let empty_json = JsonData::new("String".to_owned());
+  /// assert_eq!(empty_json.to_string(),"\"\"".to_owned());
+  /// ```
   pub fn new() -> Self {
     JsonData {
-      data: JsonDataType::Empty,
+      data: Rc::new(JsonDataType::Empty),
       parent: RefCell::new(Weak::new()),
     }
   }
   /// `new_atomic_from_string` creates a JsonData of JsonDataType Atomic for
   /// an input String.
+  /// # Example
+  /// ```
+  /// let simple_string = JsonData::new_atomic_from_string("String".to_owned());
+  /// assert_eq!(simple_string.to_string(),"\"String\"".to_owned());
+  /// ```
   pub fn new_atomic_from_string(input: String) -> JsonData {
     JsonData {
-      data: JsonDataType::Atomic(RefCell::new(input)),
+      data: Rc::new(JsonDataType::Atomic(RefCell::new(input))),
+      parent: RefCell::new(Weak::new()),
+    }
+  }
+  /// `new_array_from_string` creates a JsonData of JsonDataType Array for
+  /// an input String.
+  /// # Example
+  /// ```
+  /// let simple_array = JsonData::new_array_from_string("String".to_owned());
+  /// assert_eq!(simple_array.to_string(),"\"[String]\"".to_owned());
+  /// ```
+  pub fn new_array_from_string(input: String) -> JsonData {
+    JsonData {
+      data: Rc::new(JsonDataType::Array(RefCell::new(vec![JsonData::new_atomic_from_string(input)]))),
       parent: RefCell::new(Weak::new()),
     }
   }
   /// `array_wrap` wraps a JsonData into JsonDataType Array
-  pub fn array_wrap(self) -> JsonDataType {
-    JsonDataType::Array(
-      RefCell::new(
-        vec![
-          Rc::new(JsonData{
-            data: self.data,
-            parent: RefCell::new(Weak::new()),
-          })
-        ]
+  pub fn array_wrap(&self) -> Rc<JsonDataType> {
+    Rc::new(
+      JsonDataType::Array(
+        RefCell::new(
+          vec![
+            JsonData {
+              data: Rc::clone(&self.data),
+              parent: RefCell::new(Weak::new()),
+            }
+          ]
+        )
       )
     )
   }
@@ -63,14 +88,10 @@ impl JsonData {
       RefCell::new(
         vec![
           (key,
-            RefCell::new(
-              Rc::new(
-                JsonData {
-                  data: self.data,
-                  parent: RefCell::new(Weak::new()),
-                }
-              )
-            )
+            JsonData {
+              data: self.data,
+              parent: RefCell::new(Weak::new()),
+            }
           )
         ]
       )
@@ -78,8 +99,8 @@ impl JsonData {
   }
   /// `to_string` returns the string representation of a JsonDataType object.
   pub fn to_string(&self) -> String {
-    match &self.data {
-      JsonDataType::Atomic(ref data) => format!("\"{}\"", *data.borrow()),
+    match &*self.data {
+      JsonDataType::Atomic(data) => format!("\"{}\"", *data.borrow()),
       JsonDataType::Array(array_data) => {
         format!("[{}]",
                 array_data
@@ -93,7 +114,7 @@ impl JsonData {
                 obj_data
                 .borrow()
                 .iter()
-                .map(|(k,v)| format!("\"{}\":{}",k,v.borrow().to_string()))
+                .map(|(k,v)| format!("\"{}\":{}",k,v.to_string()))
                 .collect::<Vec<_>>().join(","))
       },
       JsonDataType::Empty => "null".to_owned(),
@@ -144,10 +165,10 @@ impl JsonData {
     Ok(JsonData::new_atomic_from_string("Unimplemented".to_string()))
   }
   /// `transform_to_atomic` an entry currently Empty variant to an Atomic variant.
-  pub fn transform_to_atomic(self, input: String) -> Result<JsonDataType,String> {
-    match &self.data {
+  pub fn transform_to_atomic(&self, input: String) -> Result<Rc<JsonDataType>,String> {
+    match &*self.data {
       JsonDataType::Empty => {
-        Ok(JsonDataType::Atomic(RefCell::new(input)))
+        Ok(Rc::new(JsonDataType::Atomic(RefCell::new(input))))
       },
       _ => {
         Err("transform_to_atomic supports only Empty JsonDataType".to_owned())
@@ -156,23 +177,22 @@ impl JsonData {
   }
   /// `push_value` to the current hierarchy.
   pub fn push_value(&mut self, input: String) {
-    match &mut self.data {
+    match &*self.data {
       JsonDataType::Array(array_ref) => {
-        array_ref.borrow_mut().push(Rc::new(JsonData::new_atomic_from_string(input)));
+        array_ref.borrow_mut().push(JsonData::new_atomic_from_string(input));
       },
-      JsonDataType::Object(obj_ref) => {
-        let obj_data = obj_ref.borrow_mut();
-        let last_index = obj_data.len();
-        //obj_data.push((input, JsonData{ data: Rc::new(JsonDataType::Empty)}));
-        let inner_obj = &obj_data[last_index-1].1;
-        inner_obj.borrow_mut().insert(input);
-      },
+//      JsonDataType::Object(obj_ref) => {
+//        let obj_data = obj_ref.into_inner();
+//        //obj_data.push((input, JsonData{ data: Rc::new(JsonDataType::Empty)}));
+//        let mut inner_obj = obj_data[obj_data.len()-1].1.into_inner();
+//        inner_obj.insert(input);
+//      },
       _ => {},
     }
   }
   /// `insert` to the current level
   pub fn insert(&mut self, input: String) {
-    match self.data {
+    match &*self.data {
       JsonDataType::Empty => {
         self.data = self.transform_to_atomic(input).unwrap();
       },
@@ -192,16 +212,16 @@ impl JsonData {
   /// `insert_kv` Inserts a Key/Value pair.
   pub fn insert_kv(&self, input_key: String, input_value: String) {
     // If the key exists, add the input_value to the key.
-    match self.data {
+    match &*self.data {
       JsonDataType::Object(kv_array_ref) => {
-        let kv_array = kv_array_ref.borrow_mut();
+        let mut kv_array = kv_array_ref.borrow_mut();
         for (k,v) in kv_array.iter_mut() {
           if *k == input_key {
-            v.borrow_mut().insert(input_value.to_owned());
+            v.push_value(input_value);
             return;
           }
         }
-        kv_array.push((input_key, RefCell::new(Rc::new(JsonData::new_atomic_from_string(input_value)))));
+        kv_array.push((input_key, JsonData::new_atomic_from_string(input_value)));
       },
       _ => {
         panic!("Unsupported type for insert_kv, use insert");
@@ -239,47 +259,80 @@ mod tests {
   #[test]
   fn it_transforms_to_string() {
     // Technically this could be invalid JSON but not for our simple case.
-    let simple_string = JsonData{ data: Rc::new(JsonDataType::Atomic("String".to_owned()))};
+    let simple_string = JsonData::new_atomic_from_string("String".to_owned());
     assert_eq!(simple_string.to_string(),"\"String\"".to_owned());
-    let simple_array1 = JsonData{ data: Rc::new(
-      JsonDataType::Array(
-        vec![
-          JsonData{ data: Rc::new(JsonDataType::Atomic("String".to_owned()))},
-        ]
-      ))};
+    let simple_array1 = JsonData::new_array_from_string("String".to_owned());
     assert_eq!(simple_array1.to_string(),"[\"String\"]".to_owned());
-    let simple_array2 = JsonData{ data: Rc::new(
-      JsonDataType::Array(
-        vec![
-          JsonData{ data: Rc::new(JsonDataType::Atomic("String1".to_owned()))},
-          JsonData{ data: Rc::new(JsonDataType::Atomic("String2".to_owned()))},
-        ]
-      ))};
+    let simple_array2 = JsonData{
+      data: Rc::new(
+        JsonDataType::Array(
+          RefCell::new(
+            vec![
+              JsonData::new_atomic_from_string("String1".to_owned()),
+              JsonData::new_atomic_from_string("String2".to_owned()),
+            ]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
     assert_eq!(simple_array2.to_string(),"[\"String1\",\"String2\"]".to_owned());
-    let simple_obj = JsonData{ data: Rc::new(
-      JsonDataType::Object(
-        vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value".to_owned()))})]
-      ))};
+    let simple_obj = JsonData{
+      data: Rc::new(
+        JsonDataType::Object(
+          RefCell::new(
+            vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value".to_owned()))]
+          ),
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
     assert_eq!(simple_obj.to_string(),"{\"Key\":\"Value\"}".to_owned());
-    let multi_kv = JsonData{ data: Rc::new(
-      JsonDataType::Object(
-        vec![
-          ("Key1".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))}),
-          ("Key2".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value2".to_owned()))})
-        ]
-      ))};
+    let multi_kv = JsonData{
+      data: Rc::new(
+        JsonDataType::Object(
+          RefCell::new(
+            vec![
+              ("Key1".to_owned(), JsonData::new_atomic_from_string("Value1".to_owned())),
+              ("Key2".to_owned(), JsonData::new_atomic_from_string("Value2".to_owned())),
+            ]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
     assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":\"Value2\"}".to_owned());
-    let array_contains_objs = JsonData{ data: Rc::new(
-      JsonDataType::Array(
-        vec![
-          JsonData{ data: Rc::new(JsonDataType::Object(
-            vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))})]
-          ))},
-          JsonData{ data: Rc::new(JsonDataType::Object(
-            vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value2".to_owned()))})])
-          )},
-        ]
-      ))};
+    let array_contains_objs = JsonData{
+      data: Rc::new(
+        JsonDataType::Array(
+          RefCell::new(
+            vec![
+              JsonData{
+                data: Rc::new(
+                  JsonDataType::Object(
+                    RefCell::new(
+                      vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value1".to_owned()))]
+                    ),
+                  )
+                ),
+                parent: RefCell::new(Weak::new()),
+              },
+              JsonData{
+                data: Rc::new(
+                  JsonDataType::Object(
+                    RefCell::new(
+                      vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value2".to_owned()))]
+                    ),
+                  )
+                ),
+                parent: RefCell::new(Weak::new()),
+              },
+            ]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
     assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"}]".to_owned());
     let obj_contains_array = JsonData{ data: Rc::new(
       JsonDataType::Object(
