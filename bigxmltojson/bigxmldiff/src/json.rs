@@ -334,15 +334,28 @@ mod tests {
       parent: RefCell::new(Weak::new()),
     };
     assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"}]".to_owned());
-    let obj_contains_array = JsonData{ data: Rc::new(
-      JsonDataType::Object(
-        vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Array(
-          vec![
-            JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))},
-            JsonData{ data: Rc::new(JsonDataType::Atomic("Value2".to_owned()))}
-          ]))}
-        )]
-      ))};
+    let obj_contains_array = JsonData{
+      data: Rc::new(
+        JsonDataType::Object(
+          RefCell::new(
+            vec![("Key".to_owned(), JsonData{
+              data: Rc::new(
+                JsonDataType::Array(
+                  RefCell::new(
+                    vec![
+                      JsonData::new_atomic_from_string("Value1".to_owned()),
+                      JsonData::new_atomic_from_string("Value2".to_owned()),
+                    ]
+                  )
+                ),
+              ),
+              parent: RefCell::new(Weak::new()),
+            })]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
     assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\"]}".to_owned());
   }
   #[test]
@@ -354,48 +367,85 @@ mod tests {
     let mut simple_array2 = simple_string;
     simple_array2.insert("String2".to_owned());
     assert_eq!(simple_array2.to_string(),"[\"String1\",\"String2\"]".to_owned());
-    let mut simple_obj = JsonData{ data: Rc::new(
-      JsonDataType::Object(
-        vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value".to_owned()))})]
-      ))};
-    simple_obj.insert("Value2".to_owned());
-    assert_eq!(simple_obj.to_string(),"{\"Key\":[\"Value\",\"Value2\"]}".to_owned());
+    let mut simple_obj = JsonData{
+      data: Rc::new(
+        JsonDataType::Object(
+          RefCell::new(
+            vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value1".to_owned()))]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
+    };
+    simple_obj.insert_kv("Key".to_owned(),"Value2".to_owned());
+    assert_eq!(simple_obj.to_string(),"{\"Key\":[\"Value1\",\"Value2\"]}".to_owned());
     let mut multi_kv = JsonData{ data: Rc::new(
       JsonDataType::Object(
-        vec![
-          ("Key1".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))}),
-          ("Key2".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value2.0".to_owned()))})
-        ]
+        RefCell::new(
+          vec![
+            ("Key1".to_owned(), JsonData::new_atomic_from_string("Value1".to_owned())),
+            ("Key2".to_owned(), JsonData::new_atomic_from_string("Value2.0".to_owned())),
+          ]
+        )
       )),
-      parent: None
+      parent: RefCell::new(Weak::new()),
     };
     multi_kv.insert("Value2.1".to_owned());
     assert_eq!(multi_kv.to_string(),"{\"Key1\":\"Value1\",\"Key2\":[\"Value2.0\",\"Value2.1\"]}".to_owned());
-    let mut array_contains_objs = JsonData{ data: Rc::new(
-      JsonDataType::Array(
-        vec![
-          JsonData{ data: Rc::new(JsonDataType::Object(
-            vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))})]
-          ))},
-          JsonData{ data: Rc::new(JsonDataType::Object(
-            vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Atomic("Value2".to_owned()))})])
-          )},
-        ]
-      )),
-      parent: None
+    let mut array_contains_objs = JsonData{
+      data: Rc::new(
+        JsonDataType::Array(
+          RefCell::new(
+            vec![
+              JsonData{
+                data: Rc::new(
+                  JsonDataType::Object(
+                    RefCell::new(
+                      vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value1".to_owned()))]
+                    )
+                  )
+                ),
+                parent: RefCell::new(Weak::new()),
+              },
+              JsonData{
+                data: Rc::new(
+                  JsonDataType::Object(
+                    RefCell::new(
+                      vec![("Key".to_owned(), JsonData::new_atomic_from_string("Value2".to_owned()))]
+                    )
+                  )
+                ),
+                parent: RefCell::new(Weak::new()),
+              },
+            ]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
     };
     array_contains_objs.insert("Value".to_owned());
     assert_eq!(array_contains_objs.to_string(),"[{\"Key\":\"Value1\"},{\"Key\":\"Value2\"},\"Value\"]".to_owned());
-    let mut obj_contains_array = JsonData{ data: Rc::new(
-      JsonDataType::Object(
-        vec![("Key".to_owned(), JsonData{ data: Rc::new(JsonDataType::Array(
-          vec![
-            JsonData{ data: Rc::new(JsonDataType::Atomic("Value1".to_owned()))},
-            JsonData{ data: Rc::new(JsonDataType::Atomic("Value2".to_owned()))}
-          ]))}
-        )]
-      )),
-      parent: None
+    let mut obj_contains_array = JsonData{
+      data: Rc::new(
+        JsonDataType::Object(
+          RefCell::new(
+            vec![("Key".to_owned(), JsonData{
+              data: Rc::new(
+                JsonDataType::Array(
+                  RefCell::new(
+                    vec![
+                      JsonData::new_atomic_from_string("Value1".to_owned()),
+                      JsonData::new_atomic_from_string("Value2".to_owned()),
+                    ]
+                  )
+                )
+              ),
+              parent: RefCell::new(Weak::new()),
+            })]
+          )
+        )
+      ),
+      parent: RefCell::new(Weak::new()),
     };
     obj_contains_array.insert("Value3".to_owned());
     assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\",\"Value3\"]}".to_owned());
