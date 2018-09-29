@@ -182,6 +182,7 @@ impl JsonData {
     let mut inside_tag = false;
     let mut cur_tag = String::with_capacity(128);
     let mut cur_tag_content = String::with_capacity(128);
+    let mut cur_hierarchy:Vec<String> = vec![];
     let mut res = JsonData::new();
     if verbosity > 1 {
       println!("WORKER[{}] Working on content: {}", worker_id_string, data);
@@ -196,13 +197,17 @@ impl JsonData {
           println!("WORKER[{}] Found tag '{}'", worker_id_string, cur_tag);
         }
         if cur_tag.starts_with('/') {
-          cur_tag.drain(..1);
-          println!("WORKER[{}] Current tag '{{{}:{}}}'", worker_id_string, cur_tag, cur_tag_content);
+          cur_tag.drain(..1); // Remove the leading /
+          println!("WORKER[{}] Current val '{{{}:{}}}'", worker_id_string, cur_hierarchy.join("."), cur_tag_content);
+          let cur_hier_len = cur_hierarchy.len() - 1;
+          cur_hierarchy.remove(cur_hier_len);
           if cur_tag_content.len() > 0 {
             res.insert_kv(cur_tag.clone(),cur_tag_content.clone());
           } else {
             res.insert(cur_tag.clone());
           }
+        } else {
+          cur_hierarchy.push(cur_tag.clone());
         }
         cur_tag_content.truncate(0);
         cur_tag.truncate(0);
@@ -234,18 +239,6 @@ impl JsonData {
       },
     }
   }
-  /// `transform_to_object` an entry currently Empty variant to an Object
-  /// variant.
-  pub fn transform_to_object(&self, input_key: String, input_value: String) -> Result<Rc<JsonDataType>,String> {
-    match &*self.data {
-      JsonDataType::Empty => {
-        Ok(Rc::new(JsonDataType::new_object_from_kv_strings(input_key,input_value)))
-      },
-      _ => {
-        Err("transform_to_object supports only Empty JsonDataType".to_owned())
-      },
-    }
-  }
   /// `push_value` to the current hierarchy.
   pub fn push_value(&mut self, input: String) {
     match &*self.data {
@@ -263,9 +256,9 @@ impl JsonData {
   }
   /// `vivify_path` Creates a path structure if needed and inserts a string
   /// on it.
-  /// The path comes as a dot separated values.
-  /// If a path doesn't exist, it will create it as a JSON Object.
-  /// If the path exists, it may need to wrap a given JSON Object in to an Array.
+  /// The path comes as an array of Strings to populate.
+  /// If a step in path doesn't exist, it will be created as a JSON Object.
+  /// If a step in path exists, it may need to be wrapped in a JSON Array.
   /// # Example:
   /// ```
   /// let mut test_obj = JsonData::vivify_path("root.keys.alpha.id".to_owned(),"1".to_owned());
@@ -282,8 +275,8 @@ impl JsonData {
   pub fn insert(&mut self, input: String) {
     match &*self.data {
       JsonDataType::Object(_) => {
-        self.data = self.obj_wrap(input);
-        //self.push_value(input);
+        self.data = self.array_wrap();
+        self.push_value(input);
         //    res.data = res.obj_wrap(cur_tag.clone());
         //panic!("Unsupported type for insert, use insert_kv");
       },
@@ -535,7 +528,10 @@ mod tests {
       ),
       parent: RefCell::new(Weak::new()),
     };
-    obj_contains_array.insert("Value3".to_owned());
+    obj_contains_array.insert_kv("Key".to_owned(),"Value3".to_owned());
     assert_eq!(obj_contains_array.to_string(),"{\"Key\":[\"Value1\",\"Value2\",\"Value3\"]}".to_owned());
+  }
+  #[test]
+  fn it_vivifies_path() {
   }
 }
