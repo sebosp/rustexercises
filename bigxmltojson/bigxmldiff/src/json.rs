@@ -260,16 +260,46 @@ impl JsonData {
   /// If a step in path doesn't exist, it will be created as a JSON Object.
   /// If a step in path exists, it may need to be wrapped in a JSON Array.
   /// # Example:
-  /// ```
-  /// let mut test_obj = JsonData::vivify_path("root.keys.alpha.id".to_owned(),"1".to_owned());
+  /// //```
+  /// pub mod json;
+  /// extern crate json;
+  /// let mut test_obj = JsonData::new();
+  /// test_obj.vivify_path("root.keys.alpha.id".to_owned(),"1".to_owned());
   /// assert_eq!(test_obj.to_string(),"{\"root\":{\"keys\":{\"alpha\":\"1\"}}}".to_owned());
-  /// test.obj.JsonData::vivify_path("root.keys.beta.id".to_owned(),"2".to_owned());
+  /// test_obj.vivify_path(&"root.keys.beta.id".split("."),"2".to_owned());
   /// assert_eq!(test_obj.to_string(),"{\"root\":{\"keys\":[{\"alpha\":\"1\"},{\"beta\":\"2\"}]}}".to_owned());
-  /// test.obj.JsonData::vivify_path("root.attrs.beta.name".to_owned(),"BetaAttr".to_owned());
+  /// test_obj.vivify_path("root.attrs.beta.name".to_owned(),"BetaAttr".to_owned());
   /// assert_eq!(test_obj.to_string(),"{\"root\":{\"keys\":[{\"alpha\":\"1\"},{\"beta\":\"2\"}]}}".to_owned());
-  /// ```
-  pub fn vivify_path(&mut self, _path: &String, _input: String) {
-    unimplemented!("XXX");
+  /// //```
+  pub fn vivify_path(&mut self, path: &Vec<String>, input: String) {
+    let new_item = JsonData::new_atomic_from_string(input);
+    if let JsonDataType::Empty = *self.data {
+        new_item.obj_wrap(path[0].clone());
+    }
+    let mut target = self;
+    for step in path {
+      let current_type = match &*self.data {
+        JsonDataType::Object(kv_array_ref) => {
+          let mut path_key = None;
+          let kv_array = kv_array_ref.borrow_mut();
+          for (k,v) in kv_array.iter() {
+            if k == step {
+              path_key = Some(v);
+            }
+          }
+          kv_array.push((input_key, JsonData::new_atomic_from_string(input_value)));
+          Rc::clone(&self.data)
+          path_key
+        },
+        _ => None,
+      };
+      if Some(t) = path_key {
+        target = t;
+      } else {
+        target.data = 
+      }
+    }
+    *target.data = *new_item.data;
   }
   /// `insert` a string to the current level
   pub fn insert(&mut self, input: String) {
@@ -533,5 +563,9 @@ mod tests {
   }
   #[test]
   fn it_vivifies_path() {
+    let mut simple_obj = JsonData::new();
+    let simple_path = vec!["Root".to_owned()];
+    simple_obj.vivify_path(&simple_path, "Elem0".to_owned());
+    assert_eq!(simple_obj.to_string(),"{\"Root\":\"Elem0\"}".to_owned());
   }
 }
