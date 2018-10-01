@@ -48,7 +48,18 @@ impl JsonDataType {
       )
     )
   }
-  /// `new_object_from_kv_strinsg` Creates a JsonDataType Object from
+  /// `new_object_from_key_string` Creates a JsonDataType Object from a
+  /// String, with a value of Empty.
+  pub fn new_object_from_key_string(input_key: String) -> JsonDataType {
+    JsonDataType::Object(
+      RefCell::new(
+        vec![
+          (input_key,JsonData::new())
+        ]
+      )
+    )
+  }
+  /// `new_object_from_kv_strings` Creates a JsonDataType Object from
   /// String Key,Value pair.
   pub fn new_object_from_kv_strings(input_key: String, input_value: String) -> JsonDataType {
     JsonDataType::Object(
@@ -273,30 +284,28 @@ impl JsonData {
   /// //```
   pub fn vivify_path(&mut self, path: &Vec<String>, input: String) {
     let new_item = JsonData::new_atomic_from_string(input);
-    if let JsonDataType::Empty = *self.data {
-        new_item.obj_wrap(path[0].clone());
-    }
     let mut target = self;
     for step in path {
-      let current_type = match &*self.data {
+      let mut current_type = match &*self.data {
         JsonDataType::Object(kv_array_ref) => {
           let mut path_key = None;
           let kv_array = kv_array_ref.borrow_mut();
-          for (k,v) in kv_array.iter() {
+          for (k,v) in kv_array.iter_mut() {
             if k == step {
               path_key = Some(v);
             }
           }
-          kv_array.push((input_key, JsonData::new_atomic_from_string(input_value)));
-          Rc::clone(&self.data)
+          if let None = path_key {
+            kv_array.push((step.clone(), JsonData::new()));
+          }
           path_key
         },
         _ => None,
       };
-      if Some(t) = path_key {
-        target = t;
+      if let Some(t) = current_type {
+        target = &mut t;
       } else {
-        target.data = 
+        target.obj_wrap(step.clone());
       }
     }
     *target.data = *new_item.data;
