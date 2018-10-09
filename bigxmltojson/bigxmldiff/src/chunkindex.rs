@@ -63,6 +63,11 @@ impl ChunkIndex {
     }
     Ok(())
   }
+  pub fn from_file(&self, _file: &String) -> std::io::Result<()> {
+    unimplemented!("Not yet")
+    //let mut f = File::open(file).expect("file not found");
+    //let mut contents = String::new();
+  }
 }
 
 /// `calculate_checksum` gets a data chunk and creates a SHA256 out of it.

@@ -394,6 +394,22 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
 }
 
 
+/// `read_chunkindex` Parses an existing ChunkIndex file
+pub fn read_chunkindex(cfg: &Config, filename: &String) -> Result<ChunkIndex, String> {
+  let idx_filename = format!("{}.idx",filename);
+  if cfg.verbosity > 0i8 {
+    println!("Attempting to read chunk index file: {}",idx_filename);
+  }
+  if Path::new(&idx_filename).exists() {
+    let chunk_index = ChunkIndex::new(&filename);
+    match chunk_index.from_file(&idx_filename) {
+      Ok(_)    => Ok(chunk_index),
+      Err(err) => Err(format!("Unable to parse idx file {}: {}",idx_filename, err)),
+    }
+  } else {
+    Err(format!("Path {}.idx does not exists",idx_filename))
+  }
+}
 /// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
 pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<ChunkIndex,String> {
   match read_file_in_chunks(cfg, filename) {
@@ -415,6 +431,7 @@ pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) 
   match file.seek(SeekFrom::Start(offset as u64)) {
     Err(err) => return Err(format!("get_json_chunk_from_offset failed: {}",err)),
     Ok(_) => {
+      println!("get_json_chunk_from_offset sought to offset {}", offset);
       if cfg.verbosity > 3 {
         println!("get_json_chunk_from_offset sought to offset {}", offset);
       }
@@ -467,16 +484,15 @@ pub fn write_diff_files(cfg: &Config) -> std::io::Result<()> {
   let mut file2 = File::open(&cfg.input_filename2)?;
   let mut added_chunks_file = File::create(format!("{}.added",&cfg.input_filename2))?;
   for offset in added {
-    // Process Deleted
-    match get_json_chunk_from_offset(&cfg, &mut file1, offset) {
+    // Process Added
+    match get_json_chunk_from_offset(&cfg, &mut file2, offset) {
       Ok(json_chunk) => added_chunks_file.write_all(format!("{}\n", json_chunk).as_bytes())?,
       Err(err)       => panic!(format!("{}",err)),
     }
   }
   // Process Modified
-  file2.seek(SeekFrom::Start(42))?;
-  // Process Added
-  file2.seek(SeekFrom::Start(42))?;
+  // Process Deleted
+  file1.seek(SeekFrom::Start(42))?;
   Ok(())
 }
 
