@@ -63,10 +63,31 @@ impl ChunkIndex {
     }
     Ok(())
   }
-  pub fn from_file(&self, _file: &String) -> std::io::Result<()> {
-    unimplemented!("Not yet")
-    //let mut f = File::open(file).expect("file not found");
-    //let mut contents = String::new();
+  pub fn split_kv_from_string(&self, input: &str) -> Result<(String,String),String> {
+    let mut input = input.to_string();
+      match input.find('&') {
+        Some(key_offset) => {
+          let key:String = input.drain( .. key_offset).collect();
+          input.drain(0..1);
+          Ok((key,input))
+        },
+        None => Err(format!("Unable to find key/value for: '{}'",input)),
+      }
+  }
+  pub fn from_file(&mut self, file: &String) -> Result<(),String> {
+    let mut f = File::open(file).expect("file not found");
+    let mut contents = String::new();
+    f.read_to_string(&mut contents)
+     .expect("something went wrong reading the file");
+    for line in contents.lines() {
+      match self.split_kv_from_string(line) {
+        Ok((key,value)) => {
+          self.insert(key,value);
+        },
+        Err(err) => { return Err(err.to_string()) },
+      }
+    }
+    Ok(())
   }
 }
 
@@ -190,5 +211,21 @@ mod tests {
     assert_eq!(added.len(),1);
     assert_eq!(modified.len(),1);
     assert_eq!(deleted.len(),1);
+  }
+  #[test]
+  fn it_splits_kv() {
+    let idx1 = ChunkIndex::new(&"NONE".to_owned());
+    assert_eq!(
+      idx1.split_kv_from_string("K&V"),
+      Ok(("K".to_string(),"V".to_string()))
+    );
+    assert_eq!(
+      idx1.split_kv_from_string("K&V1&V2"),
+      Ok(("K".to_string(),"V1&V2".to_string()))
+    );
+    assert_eq!(
+      idx1.split_kv_from_string("K"),
+      Err("Unable to find key/value for: 'K'".to_string())
+    );
   }
 }
