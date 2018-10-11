@@ -16,10 +16,11 @@ pub struct Config {
   pub concurrency: i8,
   pub bind_address: String,
   pub verbosity: i8,
+  pub use_index_files: bool,
 }
 
 impl Config {
-  pub fn new(keys: String,chunk_delimiter: String, input_filename1: String, input_filename2: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8) -> Config {
+  pub fn new(keys: String,chunk_delimiter: String, input_filename1: String, input_filename2: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8, use_index_files: bool) -> Config {
     let mut xml_keys:Vec<String> = vec![];
     for key in keys.split(",") {
       // Prepend an / for the closing tag
@@ -35,6 +36,7 @@ impl Config {
         concurrency: concurrency,
         bind_address: bind_address,
         verbosity: verbosity,
+        use_index_files: use_index_files,
     }
   }
   pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
@@ -52,6 +54,7 @@ impl Config {
     opts.optopt("k", "keyFields", "Comma separated list of tags in the XML Chunk that will be use to set a unique ID", "TAG1,TAG2,TAG3");
     opts.optopt("c", "concurrency", "Run the parsing in separate threads", "SIZE");
     opts.optopt("v", "verbosity", "Set verbosity level", "SIZE");
+    opts.optopt("u", "use_index_files", "Use Index Files", "BOOL");
     let matches = match opts.parse(&args[..]) {
       Ok(m) => { m }
       Err(f) => { panic!(f.to_string()) }
@@ -66,9 +69,10 @@ impl Config {
     let mut chunk_size = 0usize;
     let mut concurrency = 1i8;
     let mut verbosity = 1i8;
+    let mut use_index_files = false;
 
     if matches.opt_present("h") {
-      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity));
+      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity,use_index_files));
     }
     match matches.opt_str("m") {
       Some(opt_mode) => {
@@ -112,6 +116,7 @@ impl Config {
       Some(size) => size.parse::<i8>().unwrap(),
       None => 10i8,
     };
+    use_index_files = matches.opt_present("u");
     verbosity = match matches.opt_str("v") {
       Some(size) => size.parse::<i8>().unwrap(),
       None => 0i8,
@@ -122,7 +127,7 @@ impl Config {
       },
       None => bind_address = "tcp://*:5555".to_owned(),
     }
-    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity))
+    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity,use_index_files))
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
