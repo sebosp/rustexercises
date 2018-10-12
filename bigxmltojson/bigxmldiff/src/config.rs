@@ -5,6 +5,7 @@ extern crate getopts;
 extern crate std;
 use getopts::Options;
 use std::path::Path;
+use super::*;
 
 pub struct Config {
   pub mode: String,
@@ -20,6 +21,42 @@ pub struct Config {
 }
 
 impl Config {
+  pub fn with_file1(mut self, file: String) -> Result<Config, &'static str> {
+    self.input_filename1 = check_file(file)?;
+    Ok(self)
+  }
+  pub fn with_file2(mut self, file: String) -> Result<Config, &'static str> {
+    self.input_filename2 = check_file(file)?;
+    Ok(self)
+  }
+  pub fn with_mode(mut self, mode: String) -> Result<Config, &'static str> {
+    match mode.as_ref() {
+      "help" => {
+         self.mode = "help".to_string();
+         Ok(self)
+      },
+      "checksum" => {
+         self.mode = "checksum".to_string();
+         Ok(self)
+      }
+      "validate" => {
+         self.mode = "validate".to_string();
+         Ok(self)
+      }
+      "compare" => {
+         self.mode = "compare".to_string();
+         Ok(self)
+      }
+      "diff" => {
+         self.mode = "diff".to_string();
+         Ok(self)
+      }
+      _ => {
+        self.mode = "help".to_string();
+        Err("Unknown operational mode")
+      }
+    }
+  }
   pub fn new(keys: String,chunk_delimiter: String, input_filename1: String, input_filename2: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8, use_index_files: bool) -> Config {
     let mut xml_keys:Vec<String> = vec![];
     for key in keys.split(",") {
@@ -90,11 +127,7 @@ impl Config {
     }
     match matches.opt_str("i1") {
       Some(file) => {
-        if Path::new(&file).exists() {
-          input_filename1 = file
-        } else {
-          return Err("Input file does not exist.");
-        }
+        input_filename1 = file;
       },
       None => return Err("Missing -i1 input file parameter"),
     };
