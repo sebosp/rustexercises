@@ -7,6 +7,7 @@ use getopts::Options;
 use std::path::Path;
 use super::*;
 
+#[derive(Default)]
 pub struct Config {
   pub mode: String,
   pub input_filename1: String,
@@ -21,59 +22,117 @@ pub struct Config {
 }
 
 impl Config {
-  pub fn with_file1(mut self, file: String) -> Result<Config, &'static str> {
-    self.input_filename1 = check_file(file)?;
-    Ok(self)
-  }
-  pub fn with_file2(mut self, file: String) -> Result<Config, &'static str> {
-    self.input_filename2 = check_file(file)?;
-    Ok(self)
-  }
-  pub fn with_mode(mut self, mode: String) -> Result<Config, &'static str> {
-    match mode.as_ref() {
-      "help" => {
-         self.mode = "help".to_string();
-         Ok(self)
-      },
-      "checksum" => {
-         self.mode = "checksum".to_string();
-         Ok(self)
-      }
-      "validate" => {
-         self.mode = "validate".to_string();
-         Ok(self)
-      }
-      "compare" => {
-         self.mode = "compare".to_string();
-         Ok(self)
-      }
-      "diff" => {
-         self.mode = "diff".to_string();
-         Ok(self)
+  pub fn with_mode(mut self, mode: String) -> Config {
+    self.mode = match mode.as_ref() {
+      "help"|"checksum"|"validate"|"validate"|"compare" => {
+         mode
       }
       _ => {
-        self.mode = "help".to_string();
-        Err("Unknown operational mode")
+        // Defaults to diff mode.
+       "diff".to_string()
       }
-    }
+    };
+    self
   }
-  pub fn new(keys: String,chunk_delimiter: String, input_filename1: String, input_filename2: String, chunk_size: usize, mode: String, concurrency: i8, bind_address: String, verbosity: i8, use_index_files: bool) -> Config {
+  pub fn with_file(mut self, input: String) -> Result<Config, &'static str> {
+    if input.len() == 0 {
+      Ok(self)
+    }
+    if ! Path::new(&input).exists() {
+      Err("Input file does not exist.")
+    }
+    if self.input_filename1 == "" {
+      self.input_filename1 = check_file(input)?;
+    } else if self.input_filename2 == "" {
+      self.input_filename2 = check_file(input)?;
+    } else {
+      return Err("Only 2 files are supported")
+    }
+    Ok(self)
+  }
+  pub fn with_xml_keys(mut self, input: String) -> Result<Config, &'static str> {
+    if input.len() == 0 {
+      Ok(self)
+    }
     let mut xml_keys:Vec<String> = vec![];
-    for key in keys.split(",") {
+    for key in input.split(",") {
       // Prepend an / for the closing tag
       xml_keys.push(format!("/{}",key));
     }
+    self.xml_keys = xml_keys;
+    Ok(self)
+  }
+  pub fn with_chunk_delimiter(mut self, input: String) -> Config {
+    self.chunk_delimiter = input;
+    self
+  }
+  pub fn with_chunk_size(mut self, input: usize) -> Config {
+    self.chunk_size = input;
+    self
+  }
+  pub fn with_concurrency(mut self, input: i8) -> Config {
+    self.concurrency = input;
+    self
+  }
+  pub fn with_bind_address(mut self, input: String) -> Config {
+    self.bind_address = input;
+    self
+  }
+  pub fn with_verbosity(mut self, input: i8) -> Config {
+    self.verbosity = input;
+    self
+  }
+  pub fn with_use_index_files(mut self, input: bool) -> Config {
+    self.use_index_files = input;
+    self
+  }
+  pub fn build(self) -> Result<Config,&'static str> {
+    match self.mode.as_ref() {
+      "help" => {
+         Ok(self)
+      },
+      "checksum" => {
+         Ok(self)
+      },
+      "validate" => {
+         Ok(self)
+      },
+      "compare" => {
+         Ok(self)
+      },
+      "diff" => {
+         Ok(self)
+      },
+      "index" => {
+        if self.chunk_delimiter == "" {
+          return Err("Missing XML Chunk delimiter");
+        }
+        if self.xml_keys.len() == 0 {
+          return Err("Missing xml key fields");
+        }
+        Ok(self)
+      }
+      _ => {
+        // Defaults to diff mode.
+       self.mode = "diff".to_string();
+       Ok(self)
+      }
+    }
+    Ok(self)
+  }
+  pub fn new() -> Config {
+    // Defaults
     Config{
-        xml_keys: xml_keys,
-        chunk_delimiter: chunk_delimiter,
-        input_filename1: input_filename1,
-        input_filename2: input_filename2,
-        chunk_size: chunk_size * 1024,
-        mode: mode,
-        concurrency: concurrency,
-        bind_address: bind_address,
-        verbosity: verbosity,
-        use_index_files: use_index_files,
+        xml_keys: vec![],
+        chunk_delimiter: "".to_string(),
+        input_filename1: "".to_string(),
+        input_filename2: "".to_string(),
+        chunk_size: 32usize * 1024,
+        mode: "help".to_string(),
+        concurrency: 4i8,
+        bind_address: "ipc://test".to_string(),
+        verbosity: 1i8,
+        use_index_files: true
     }
   }
   pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
@@ -97,10 +156,7 @@ impl Config {
       Err(f) => { panic!(f.to_string()) }
     };
 
-    let mut mode = "help".to_owned(); // Default val
-    let mut xml_keystring = String::new();
     let mut bind_address = String::new();
-    let mut chunk_delimiter = String::new();
     let mut input_filename1 = String::new();
     let mut input_filename2 = String::new();
     let mut chunk_size = 0usize;
@@ -109,38 +165,17 @@ impl Config {
     let mut use_index_files = false;
 
     if matches.opt_present("h") {
-      return Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity,use_index_files));
+      return Config::new().with_mode("help".to_string());
     }
-    match matches.opt_str("m") {
-      Some(opt_mode) => {
-        mode = opt_mode.to_owned();
-      },
-      None => return Err("Missing -m mode parameter"),
-    }
-    match matches.opt_str("d") {
-      Some(delimiter) => chunk_delimiter = delimiter,
-      None => return Err("Missing XML Chunk delimiter"),
-    }
-    match matches.opt_str("m") {
-      Some(keys) => xml_keystring = keys,
-      None => return Err("Missing xml key fields"),
-    }
-    match matches.opt_str("i1") {
-      Some(file) => {
-        input_filename1 = file;
-      },
-      None => return Err("Missing -i1 input file parameter"),
-    };
-    match matches.opt_str("i2") {
-      Some(file) => {
-        if Path::new(&file).exists() {
-          input_filename2 = file
-        } else {
-          return Err("Input file does not exist.");
-        }
-      },
-      None => return Err("Missing -i2 input file parameter"),
-    };
+    return Config::new()
+      .with_mode(matches.opt_str("m").unwrap_or_default())?
+      .with_chunk_delimiter(matches.opt_str("d").unwrap_or_default())
+      .with_xml_keys(matches.opt_str("k").unwrap_or_default())
+      .with_file(matches.opt_str("i1").unwrap_or_default())
+      .with_file(matches.opt_str("i2").unwrap_or_default())
+      .with_chunk_size(matches.opt_str("s").unwrap_or(32usize))
+      .with_chunk_delimiter(matches.opt_str("d").unwrap_or_default())
+
     chunk_size = match matches.opt_str("s") {
       Some(size) => size.parse::<usize>().unwrap(),
       None => 128usize,
@@ -160,7 +195,7 @@ impl Config {
       },
       None => bind_address = "tcp://*:5555".to_owned(),
     }
-    Ok(Config::new(xml_keystring,chunk_delimiter,input_filename1,input_filename2,chunk_size,mode,concurrency,bind_address,verbosity,use_index_files))
+    Ok(res)
   }
   /// `print_usage` prints program GetOpt usage.
   pub fn print_usage(self) {
