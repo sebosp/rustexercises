@@ -5,7 +5,6 @@ extern crate getopts;
 extern crate std;
 use getopts::Options;
 use std::path::Path;
-use super::*;
 
 #[derive(Default)]
 pub struct Config {
@@ -24,7 +23,7 @@ pub struct Config {
 impl Config {
   pub fn with_mode(mut self, mode: String) -> Config {
     self.mode = match mode.as_ref() {
-      "help"|"checksum"|"validate"|"validate"|"compare" => {
+      "help"|"checksum"|"validate"|"compare" => {
          mode
       }
       _ => {
@@ -34,25 +33,20 @@ impl Config {
     };
     self
   }
-  pub fn with_file(mut self, input: String) -> Result<Config, &'static str> {
+  pub fn with_file(mut self, input: String) -> Config {
     if input.len() == 0 {
-      Ok(self)
-    }
-    if ! Path::new(&input).exists() {
-      Err("Input file does not exist.")
+      return self
     }
     if self.input_filename1 == "" {
-      self.input_filename1 = check_file(input)?;
+      self.input_filename1 = input;
     } else if self.input_filename2 == "" {
-      self.input_filename2 = check_file(input)?;
-    } else {
-      return Err("Only 2 files are supported")
+      self.input_filename2 = input;
     }
-    Ok(self)
+    self
   }
-  pub fn with_xml_keys(mut self, input: String) -> Result<Config, &'static str> {
+  pub fn with_xml_keys(mut self, input: String) -> Config {
     if input.len() == 0 {
-      Ok(self)
+      return self;
     }
     let mut xml_keys:Vec<String> = vec![];
     for key in input.split(",") {
@@ -60,7 +54,7 @@ impl Config {
       xml_keys.push(format!("/{}",key));
     }
     self.xml_keys = xml_keys;
-    Ok(self)
+    self
   }
   pub fn with_chunk_delimiter(mut self, input: String) -> Config {
     self.chunk_delimiter = input;
@@ -75,7 +69,9 @@ impl Config {
     self
   }
   pub fn with_bind_address(mut self, input: String) -> Config {
-    self.bind_address = input;
+    if input.len() > 0 {
+      self.bind_address = input;
+    }
     self
   }
   pub fn with_verbosity(mut self, input: i8) -> Config {
@@ -86,7 +82,7 @@ impl Config {
     self.use_index_files = input;
     self
   }
-  pub fn build(self) -> Result<Config,&'static str> {
+  pub fn build(mut self) -> Result<Config, String> {
     match self.mode.as_ref() {
       "help" => {
          Ok(self)
@@ -105,10 +101,16 @@ impl Config {
       },
       "index" => {
         if self.chunk_delimiter == "" {
-          return Err("Missing XML Chunk delimiter");
+          return Err("Missing XML Chunk delimiter".to_string());
         }
         if self.xml_keys.len() == 0 {
-          return Err("Missing xml key fields");
+          return Err("Missing xml key fields".to_string());
+        }
+        if ! Path::new(&self.input_filename1).exists() {
+          return Err(format!("Input file '{}' does not exist.",self.input_filename1));
+        }
+        if ! Path::new(&self.input_filename2).exists() {
+          return Err(format!("Input file '{}' does not exist.",self.input_filename2));
         }
         Ok(self)
       }
@@ -118,7 +120,6 @@ impl Config {
        Ok(self)
       }
     }
-    Ok(self)
   }
   pub fn new() -> Config {
     // Defaults
@@ -135,7 +136,7 @@ impl Config {
         use_index_files: true
     }
   }
-  pub fn from_getopts(args: std::env::Args) -> Result<Config, &'static str> {
+  pub fn from_getopts(args: std::env::Args) -> Result<Config, String> {
     let args: Vec<String> = args.collect();
 
     let mut opts = Options::new();
@@ -156,44 +157,47 @@ impl Config {
       Err(f) => { panic!(f.to_string()) }
     };
 
-    let mut bind_address = String::new();
-    let mut input_filename1 = String::new();
-    let mut input_filename2 = String::new();
-    let mut chunk_size = 0usize;
-    let mut concurrency = 1i8;
-    let mut verbosity = 1i8;
-    let mut use_index_files = false;
-
     if matches.opt_present("h") {
-      return Config::new().with_mode("help".to_string());
+      return Ok(Config::new().with_mode("help".to_string()));
     }
-    return Config::new()
-      .with_mode(matches.opt_str("m").unwrap_or_default())?
+    let mut res = Config::new()
+      .with_mode(matches.opt_str("m").unwrap_or_default())
       .with_chunk_delimiter(matches.opt_str("d").unwrap_or_default())
       .with_xml_keys(matches.opt_str("k").unwrap_or_default())
       .with_file(matches.opt_str("i1").unwrap_or_default())
       .with_file(matches.opt_str("i2").unwrap_or_default())
-      .with_chunk_size(matches.opt_str("s").unwrap_or(32usize))
       .with_chunk_delimiter(matches.opt_str("d").unwrap_or_default())
+      .with_use_index_files(matches.opt_present("u"))
+      .with_bind_address(matches.opt_str("b").unwrap_or_default());
 
-    chunk_size = match matches.opt_str("s") {
-      Some(size) => size.parse::<usize>().unwrap(),
-      None => 128usize,
-    };
-    concurrency = match matches.opt_str("c") {
-      Some(size) => size.parse::<i8>().unwrap(),
-      None => 10i8,
-    };
-    use_index_files = matches.opt_present("u");
-    verbosity = match matches.opt_str("v") {
-      Some(size) => size.parse::<i8>().unwrap(),
-      None => 0i8,
-    };
-    match matches.opt_str("b") {
-      Some(address) => {
-        bind_address = address.to_owned();
+    match matches.opt_str("s") {
+      Some(chunk_size) => {
+        match chunk_size.parse::<usize>() {
+          Ok(val) => res = res.with_chunk_size(val),
+          Err(err) => return Err(format!("Error: unable to parse chunk size (-s) '{}': {}", chunk_size, err)),
+        };
       },
-      None => bind_address = "tcp://*:5555".to_owned(),
+      None => {},
+    }
+    match matches.opt_str("c") {
+      Some(concurrency) => {
+        match concurrency.parse::<i8>() {
+          Ok(val) => res = res.with_concurrency(val),
+          Err(err) => return Err(format!("Error: unable to parse concurrency (-c) '{}': {}.", concurrency, err)),
+        };
+      },
+      None => {},
+    }
+    match matches.opt_str("v") {
+      Some(verbosity_level_string) => {
+        match verbosity_level_string.parse::<i8>() {
+          Ok(val) => res = res.with_verbosity(val),
+          Err(err) => {
+            eprintln!("Warning: unable to parse verbosity level (-v) value '{}': {}. Using default: {}", verbosity_level_string, err,res.verbosity);
+          }
+        }
+      },
+      None => {},
     }
     Ok(res)
   }
