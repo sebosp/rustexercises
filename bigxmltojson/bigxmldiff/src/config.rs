@@ -3,8 +3,10 @@
 
 extern crate getopts;
 extern crate std;
+use super::*;
 use getopts::Options;
 use std::path::Path;
+use std::fmt;
 
 #[derive(Default)]
 pub struct Config {
@@ -61,7 +63,7 @@ impl Config {
     self
   }
   pub fn with_chunk_size(mut self, input: usize) -> Config {
-    self.chunk_size = input;
+    self.chunk_size = input * 1024;
     self
   }
   pub fn with_concurrency(mut self, input: i8) -> Config {
@@ -221,32 +223,67 @@ impl Config {
     println!("-v: verbosity: Use N level of verbosity");
     println!("-k: keyFields: Comma separated list of tags in the XML Chunk that will be use to set a unique ID");
   }
-  /// Returns the number of records or the error message
-  pub fn run(self) -> Result<i64, String> {
+  /// run checks the current mode and acts on it.
+  pub fn run(self) -> Result<(), String> {
     match self.mode.as_ref() {
       "help" => {
          self.print_usage();
-         Ok(0)
+         Ok(())
       },
       "checksum" => {
-         self.print_usage();
-         Ok(0)
-      }
+        match write_diff_files(&self){
+          Ok(()) => {
+            Ok(())
+          },
+          Err(err) => {
+            Err(err.to_string())
+          }
+        }
+      },
       "validate" => {
          self.print_usage();
-         Ok(0)
+         Ok(())
       }
       "compare" => {
          self.print_usage();
-         Ok(0)
+         Ok(())
       }
       "diff" => {
-         self.print_usage();
-         Ok(0)
+        if self.use_index_files {
+          self.print_usage();
+          Ok(())
+        } else {
+          Ok(())
+        }
       }
       _ => {
         Err("Unknown operational mode".to_owned())
       }
     }
+  }
+}
+impl fmt::Display for Config {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "Config{{
+      mode: {}
+      input_filename1: {}
+      input_filename2: {}
+      xml_keys: {:?}
+      chunk_delimiter: {}
+      chunk_size: {}
+      concurrency: {}
+      bind_address: {}
+      verbosity: {}
+      }}\n",
+      self.mode,
+      self.input_filename1,
+      self.input_filename2,
+      self.xml_keys,
+      self.chunk_delimiter,
+      self.chunk_size,
+      self.concurrency,
+      self.bind_address,
+      self.verbosity
+      )
   }
 }
