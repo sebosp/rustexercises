@@ -394,22 +394,6 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
 }
 
 
-/// `read_chunkindex` Parses an existing ChunkIndex file
-pub fn read_chunkindex(cfg: &Config, filename: &String) -> Result<ChunkIndex, String> {
-  let idx_filename = format!("{}.idx",filename);
-  if cfg.verbosity > 0i8 {
-    println!("Attempting to read chunk index file: {}",idx_filename);
-  }
-  if Path::new(&idx_filename).exists() {
-    let chunk_index = ChunkIndex::new(&filename);
-    match chunk_index.from_file(&idx_filename) {
-      Ok(_)    => Ok(chunk_index),
-      Err(err) => Err(format!("Unable to parse idx file {}: {}",idx_filename, err)),
-    }
-  } else {
-    Err(format!("Path {}.idx does not exists",idx_filename))
-  }
-}
 /// `build_chunkindex_from_xml` Parses the XMLs and builds chunkindexes out of them.
 pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<ChunkIndex,String> {
   match read_file_in_chunks(cfg, filename) {
@@ -471,8 +455,17 @@ pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) 
 
 /// `write_diff_files` Creates three files: .added, .deleted, .modified.
 pub fn write_diff_files(cfg: &Config) -> std::io::Result<()> {
-  let mut chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1).unwrap();
-  let mut chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2).unwrap();
+  let mut chunk_index1: ChunkIndex;
+  let mut chunk_index2: ChunkIndex;
+  if cfg.use_index_files {
+    chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1).unwrap();
+    chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2).unwrap();
+  } else {
+    chunk_index1 = ChunkIndex::new(&cfg.input_filename1);
+    chunk_index2 = ChunkIndex::new(&cfg.input_filename2);
+    chunk_index1.from_file();
+    chunk_index2.from_file();
+  }
   let diff = calculate_diff(&mut chunk_index1, &mut chunk_index2, cfg.verbosity);
   let mut added = diff.0;
   let mut modified = diff.1;
@@ -503,18 +496,13 @@ mod tests {
 
   #[test]
   fn it_gets_id() {
-    let verbosity = 1i8;
-    let cfg = Config::new(
-      "KEY_1,KEY_2,KEY_3".to_owned(),
-      "NOTHING".to_owned(),
-      "MEMORY".to_owned(),
-      "MEMORY".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      10i8,
-      "tcp://*:5555".to_owned(),
-      verbosity,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("KEY_1,KEY_2,KEY_3".to_owned())
+      .with_chunk_delimiter("NOTHING".to_owned())
+      .with_verbosity(1i8)
+      .build()
+      .unwrap();
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
@@ -522,50 +510,40 @@ mod tests {
     ];
     let test_xml = "<KEY_3>A</KEY_3><KEY_2></KEY_2><KEY_1>1</KEY_1>".to_owned();
     let fake_id = "TESTUNIT".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),true);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,cfg.verbosity),true);
     assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "
     
     <KEY_1>1</KEY_1>
       <KEY_3>A</KEY_3>
       <KEY_2></KEY_2>".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),true);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,cfg.verbosity),true);
     assert_eq!(chunk_id.join("&"),"1&&A".to_owned());
     let test_xml = "NotAnXML".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),false);
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,cfg.verbosity),false);
     let test_xml = "<KEY_3>A</KEY_3>".to_owned();
-    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,verbosity),false);
-    let cfg = Config::new(
-      "li".to_owned(),
-      "div".to_owned(),
-      "MEMORY".to_owned(),
-      "MEMORY".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      10i8,
-      "tcp://*:5555".to_owned(),
-      verbosity,
-    );
+    assert_eq!(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&fake_id,cfg.verbosity),false);
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("li".to_owned())
+      .with_chunk_delimiter("div".to_owned())
+      .build()
+      .unwrap();
     let mut html_chunk_id: Vec<String> = vec![
       String::with_capacity(64),
     ];
     let test_html = "<html><head></head> <body> <div><li>1</li></div> </body> </html>".to_owned();
-    assert_eq!(get_id(&test_html,&cfg.xml_keys,&mut html_chunk_id,&fake_id,verbosity),true);
+    assert_eq!(get_id(&test_html,&cfg.xml_keys,&mut html_chunk_id,&fake_id,cfg.verbosity),true);
     assert_eq!(html_chunk_id.join("&"),"1".to_owned());
   }
   #[test]
   fn it_gets_chunks() {
-    let cfg = Config::new(
-        "INVALID".to_owned(),
-        "IMPORTANT_DATA".to_owned(),
-        "MEMORY".to_owned(),
-        "MEMORY".to_owned(),
-        50usize,
-        "test".to_owned(),
-        10i8,
-        "tcp://*:5555".to_owned(),
-        0i8,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+        .with_xml_keys("INVALID".to_owned())
+        .with_chunk_delimiter("IMPORTANT_DATA".to_owned())
+        .build()
+        .unwrap();
     let mut test_xml = "<PRELUDE_TAGS></PRELUDE_TAGS>
       <IMPORTANT_DATA><INTERNAL_DATA>A</INTERNAL_DATA></IMPORTANT_DATA>
       <IRRELEVANT_DATA>1</IRRELEVANTDATA>
@@ -582,17 +560,12 @@ mod tests {
     assert_eq!(test_xml,"<IMPORTANT_DATA><INTERNAL_DATA>C</INTERNAL_DATA></IMPORTANT_DATA></LAST_TAG>".to_owned());
     assert_eq!(get_xml_chunk(&mut test_xml, &cfg),Some(("<INTERNAL_DATA>C</INTERNAL_DATA>".to_owned(),16usize)));
     assert_eq!(test_xml,"</LAST_TAG>".to_owned());
-    let cfg = Config::new(
-      "li".to_owned(),
-      "div".to_owned(),
-      "MEMORY".to_owned(),
-      "MEMORY".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      10i8,
-      "tcp://*:5555".to_owned(),
-      0i8,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("li".to_owned())
+      .with_chunk_delimiter("div".to_owned())
+      .build()
+      .unwrap();
     let mut test_html = "<html><head></head> <body> <div><li>1</li></div> <div><li>2</li></div> <div><li>3</li></div> </body> </html>".to_owned();
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>1</li>".to_owned(),32usize)));
     assert_eq!(get_xml_chunk(&mut test_html,&cfg),Some(("<li>2</li>".to_owned(),6usize)));
@@ -601,19 +574,16 @@ mod tests {
 
   #[test]
   fn it_adds_chunks() {
-    let file1 = "tests/test1-dup.xml".to_owned();
-    let file2 = "tests/test1-dup.xml".to_owned();
-    let cfg = Config::new(
-      "li".to_owned(),
-      "div".to_owned(),
-      file1,
-      file2,
-      10usize,
-      "checksum".to_owned(),
-      1i8, // The assert has a fixed expected offset, so we need to do this serially.
-      "tcp://*:5671".to_owned(),
-      0i8,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("li".to_owned())
+      .with_chunk_delimiter("div".to_owned())
+      .with_file("tests/test1-dup.xml".to_owned())
+      .with_file("tests/test1-dup.xml".to_owned())
+      .with_concurrency(1i8)
+      .with_bind_address("tcp://*:5671".to_owned())
+      .build()
+      .unwrap();
     // There are 2 duplicate IDs in chunks in this file. in the same line.
     // <div><li>1</li></div><div><li>1</li></div>
     // 01234^67890123456789012345^7890
@@ -626,18 +596,11 @@ mod tests {
   }
   #[bench]
   fn bench_get_id(b: &mut Bencher) {
-    let verbosity = 1i8;
-    let cfg = Config::new(
-      "KEY_1,KEY_2,KEY_3".to_owned(),
-      "NOTHING".to_owned(),
-      "MEMORY".to_owned(),
-      "MEMORY".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      10i8,
-      "tcp://*:5555".to_owned(),
-      verbosity,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("KEY_1,KEY_2,KEY_3".to_owned())
+      .build()
+      .unwrap();
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
@@ -645,23 +608,17 @@ mod tests {
     ];
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
-      get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),verbosity)
+      get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),cfg.verbosity)
     });
    }
   #[bench]
   fn bench_get_id_blackbox(b: &mut Bencher) {
-    let verbosity = 1i8;
-    let cfg = Config::new(
-      "KEY_1,KEY_2,KEY_3".to_owned(),
-      "NOTHING".to_owned(),
-      "MEMORY".to_owned(),
-      "MEMORY".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      10i8,
-      "tcp://*:5555".to_owned(),
-      verbosity,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("KEY_1,KEY_2,KEY_3".to_owned())
+      .with_chunk_delimiter("NOTHING".to_owned())
+      .build()
+      .unwrap();
     let mut chunk_id: Vec<String> = vec![
       String::with_capacity(64),
       String::with_capacity(64),
@@ -670,7 +627,7 @@ mod tests {
     let test_xml = "<KEY_2></KEY_2><KEY_3>A</KEY_3><KEY_1>1</KEY_1>".to_owned();
     b.iter(|| {
       for _ in 1..1000 {
-        black_box(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),verbosity));
+        black_box(get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),cfg.verbosity));
       }
     });
    }
@@ -678,17 +635,14 @@ mod tests {
   #[bench]
   #[ignore]
   fn bench_read_smallfile_smallchunks(b: &mut Bencher) {
-    let cfg = Config::new(
-      "li".to_owned(),
-      "div".to_owned(),
-      "tests/test1.xml".to_owned(),
-      "tests/test1.xml".to_owned(),
-      10usize,
-      "checksum".to_owned(),
-      1i8,
-      "tcp://*:5555".to_owned(),
-      0i8,
-    );
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("li".to_owned())
+      .with_chunk_delimiter("div".to_owned())
+      .with_file("tests/test1.xml".to_owned())
+      .with_file("tests/test1.xml".to_owned())
+      .build()
+      .unwrap();
     b.iter(|| {
       for _ in 1..1000 {
         black_box(read_file_in_chunks(&cfg,&cfg.input_filename1).unwrap());
@@ -696,3 +650,4 @@ mod tests {
     });
   }
 }
+
