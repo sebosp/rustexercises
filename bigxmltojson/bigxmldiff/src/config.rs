@@ -274,6 +274,7 @@ impl fmt::Display for Config {
       concurrency: {}
       bind_address: {}
       verbosity: {}
+      use_index_files: {}
       }}\n",
       self.mode,
       self.input_filename1,
@@ -283,7 +284,8 @@ impl fmt::Display for Config {
       self.chunk_size,
       self.concurrency,
       self.bind_address,
-      self.verbosity
+      self.verbosity,
+      self.use_index_files
       )
   }
 }
