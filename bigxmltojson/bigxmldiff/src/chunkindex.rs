@@ -74,11 +74,11 @@ impl ChunkIndex {
         None => Err(format!("Unable to find key/value for: '{}'",input)),
       }
   }
-  pub fn from_file(&mut self, file: &String) -> Result<(),String> {
-    let mut f = File::open(file).expect("file not found");
+  pub fn from_file(&mut self) -> Result<(),String> {
+    let mut f = File::open(format!("{}.idx",self.file)).expect("file not found");
     let mut contents = String::new();
     f.read_to_string(&mut contents)
-     .expect("something went wrong reading the file");
+     .expect(&format!("Unable to read index file: {}.idx",self.file));
     for line in contents.lines() {
       match self.split_kv_from_string(line) {
         Ok((key,value)) => {
