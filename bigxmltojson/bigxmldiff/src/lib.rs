@@ -140,14 +140,12 @@ fn worker_task(xml_keys: Vec<String>, connect_endpoint: String, verbosity: i8) {
   let context = zmq::Context::new();
   let worker = context.socket(zmq::DEALER).unwrap();
 
-  let start_time = Instant::now();
   let identity: Vec<_> = (0..10).map(|_| rand::random::<u8>()).collect();
   worker.set_identity(&identity).expect("failed setting client id");
   let worker_id_string = hex(&identity);
 
   // Replace * to localhost in case the connection broker binds to all addresses.
   worker.connect(&connect_endpoint.replace("*","localhost")).expect("failed connecting client");
-  let max_tasks = 10000;
   let mut total_tasks = 0;
   let mut chunk_id: Vec<String> = vec![];
   for _ in 0 .. xml_keys.len() {
@@ -206,20 +204,10 @@ fn worker_task(xml_keys: Vec<String>, connect_endpoint: String, verbosity: i8) {
       println!("WORKER[{}] Record {} id: {} shasum {}", &worker_id_string ,num_record, processed_id, processed_checksum);
     }
     worker.send(b"", SNDMORE).unwrap();
-    if total_tasks > max_tasks {
-      worker.send(b"LASTRESULT", SNDMORE).unwrap(); // Worker is finishing.
-    } else {
-      worker.send(b"RESULT", SNDMORE).unwrap();
-    }
+    worker.send(b"RESULT", SNDMORE).unwrap();
     worker.send(&processed_id.into_bytes(), SNDMORE).unwrap();
     worker.send(&processed_checksum.into_bytes(), SNDMORE).unwrap();
     worker.send(&record_offset.into_bytes(), 0).unwrap();
-    if total_tasks > max_tasks {
-      if verbosity > 0 {
-        println!("WORKER[{}] completed {} tasks in {} seconds", &worker_id_string, total_tasks, start_time.elapsed().as_secs());
-      }
-      break;
-    }
     total_tasks += 1;
   }
 }
@@ -257,15 +245,12 @@ pub fn process_response(broker: &zmq::Socket, chunk_index: &mut ChunkIndex, verb
     };
     return Err(format!("At offset {}, found existing key {} at sha&offset {}",processed_offset,processed_id,prev_payload))
   }
-  if response_type == "LASTRESULT" {
-     Ok(-1)
-  } else {
-    Ok(0)
-  }
+  Ok(0)
 }
 
 /// `read_file_in_chunks`: BufReader's the file into CAP sized data chunks.
 /// The data chunks are checked for XML chunks that can be further parsed.
+/// It returns a tuple containing the ChunkIndex and the number of records found.
 pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkIndex, usize), String> {
   println!("Checking file {}.",&filename);
   let file = File::open(Path::new(&filename)).unwrap();
@@ -285,7 +270,6 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
   println!("Binding to: {}",&cfg.bind_address);
   assert!(broker.bind(&cfg.bind_address).is_ok());
   let mut chunk_size:usize;
-  let max_tasks = 1000_000;
   for _ in 0 .. cfg.concurrency {
     let xml_keys = cfg.xml_keys.clone();
     let connect_endpoint = cfg.bind_address.clone();
@@ -365,9 +349,6 @@ pub fn read_file_in_chunks(cfg: &Config, filename: &String) -> Result<(ChunkInde
       break;
     }
     reader.consume(length);
-    if num_records > max_tasks {
-      break;
-    }
   }
   max_retries = 100_000;
   loop {
@@ -412,12 +393,20 @@ pub fn build_chunkindex_from_xml(cfg: &Config, filename: &String) -> Result<Chun
 /// `get_json_chunk_from_offset` Gets an XML offset based on the Config boundaries
 /// The data is retured in JSON format.
 pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) -> Result<String,String> {
-  match file.seek(SeekFrom::Start(offset as u64)) {
+  // When we store the chunk offset, it doesn't include the pre-amble of the key.
+  // the <> tag characters must also be added.
+  let chunk_delimiter_size = cfg.chunk_delimiter.len() + 2usize;
+  let mut adjusted_offset = offset;
+  if offset < chunk_delimiter_size {
+    return Err(format!("Invalid offset: {} for chunk delimiter",adjusted_offset));
+  } else {
+    adjusted_offset = offset - chunk_delimiter_size;
+  }
+  match file.seek(SeekFrom::Start(adjusted_offset as u64)) {
     Err(err) => return Err(format!("get_json_chunk_from_offset failed: {}",err)),
     Ok(_) => {
-      println!("get_json_chunk_from_offset sought to offset {}", offset);
       if cfg.verbosity > 3 {
-        println!("get_json_chunk_from_offset sought to offset {}", offset);
+        println!("get_json_chunk_from_offset sought to offset {}", adjusted_offset);
       }
     }
   }
@@ -446,10 +435,13 @@ pub fn get_json_chunk_from_offset(cfg: &Config, file: &mut File, offset: usize) 
     reader.consume(length);
   }
   if full_record_found {
-    let json = xml_to_json(&xml_chunk)?;
+    let json = xml_to_json(&format!("<{}>{}</{}>",cfg.chunk_delimiter,&xml_chunk,cfg.chunk_delimiter))?;
+    if cfg.verbosity > 3 {
+      println!("get_json_chunk_from_offset: XML\n{}\n JSON:\n{}",&xml_chunk, json);
+    }
     Ok(json.to_string())
   } else {
-    Err(format!("Unable to find a chuck at offset {}",offset))
+    Err(format!("Unable to find a chuck at offset {}",adjusted_offset))
   }
 }
 
@@ -458,13 +450,13 @@ pub fn write_diff_files(cfg: &Config) -> std::io::Result<()> {
   let mut chunk_index1: ChunkIndex;
   let mut chunk_index2: ChunkIndex;
   if cfg.use_index_files {
-    chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1).unwrap();
-    chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2).unwrap();
-  } else {
     chunk_index1 = ChunkIndex::new(&cfg.input_filename1);
     chunk_index2 = ChunkIndex::new(&cfg.input_filename2);
-    chunk_index1.from_file();
-    chunk_index2.from_file();
+    chunk_index1.from_file().unwrap();
+    chunk_index2.from_file().unwrap();
+  } else {
+    chunk_index1 = build_chunkindex_from_xml(&cfg, &cfg.input_filename1).unwrap();
+    chunk_index2 = build_chunkindex_from_xml(&cfg, &cfg.input_filename2).unwrap();
   }
   let diff = calculate_diff(&mut chunk_index1, &mut chunk_index2, cfg.verbosity);
   let mut added = diff.0;
@@ -594,6 +586,35 @@ mod tests {
       Ok((_,_))  => assert_eq!(0,1),
     };
   }
+  #[test]
+  fn it_reads_weird_file() {
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("I_EAN".to_owned())
+      .with_chunk_delimiter("ITEM".to_owned())
+      .with_file("tests/weird.xml".to_owned())
+      .with_concurrency(1i8)
+      .with_bind_address("tcp://*:5672".to_owned())
+      .build()
+      .unwrap();
+    match read_file_in_chunks(&cfg, &cfg.input_filename1) {
+      Err(_) => assert_eq!(0,1),
+      Ok((_, num_records)) => assert_eq!(num_records,2),
+    };
+  }
+  #[test]
+  fn it_get_json_chunk_from_offset() {
+    let cfg = Config::new()
+      .with_mode("checksum".to_owned())
+      .with_xml_keys("li".to_owned())
+      .with_chunk_delimiter("div".to_owned())
+      .with_file("tests/test1.xml".to_owned())
+      .build()
+      .unwrap();
+    let mut file = File::open(&cfg.input_filename1).unwrap();
+    assert_eq!(get_json_chunk_from_offset(&cfg, &mut file, 32usize),Ok("{\"div\":{\"li\":1.0}}".to_string()));
+    assert_eq!(get_json_chunk_from_offset(&cfg, &mut file, 54usize),Ok("{\"div\":{\"li\":2.0}}".to_string()));
+  }
   #[bench]
   fn bench_get_id(b: &mut Bencher) {
     let cfg = Config::new()
@@ -610,7 +631,7 @@ mod tests {
     b.iter(|| {
       get_id(&test_xml,&cfg.xml_keys,&mut chunk_id,&"BENCHUNIT".to_owned(),cfg.verbosity)
     });
-   }
+  }
   #[bench]
   fn bench_get_id_blackbox(b: &mut Bencher) {
     let cfg = Config::new()
