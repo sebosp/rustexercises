@@ -84,6 +84,59 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
     true
   }
 }
+struct CascadeBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub sm1: Option<SM1>,
+  pub sm2: Option<SM2>,
+  pub state: (Option<<SM1>::StateType>,Option<<SM2>::StateType>),
+}
+impl<SM1,SM2> CascadeBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub fn new() -> CascadeBuilder<SM1,SM2> {
+    CascadeBuilder{
+      sm1: None,
+      sm2: None,
+      state: (None,None),
+    }
+  }
+  pub fn with_src(mut self, input: SM1, initial_state: <SM1>::StateType) -> CascadeBuilder<SM1,SM2> {
+    self.sm1 = Some(input);
+    self.state.0 = Some(initial_state);
+    self
+  }
+  pub fn with_dst(mut self, input: SM2, initial_state: <SM2>::StateType) -> CascadeBuilder<SM1,SM2> {
+    self.sm2 = Some(input);
+    self.state.1 = Some(initial_state);
+    self
+  }
+  pub fn build(self) -> Result<Cascade<SM1,SM2>,String> {
+    let src_state = match self.state.0 {
+      Some(val) => val,
+      None => return Err("Missing initial state for Source State Machine".to_owned()),
+    };
+    let dst_state = match self.state.1 {
+      Some(val) => val,
+      None => return Err("Missing initial state for Destination State Machine.".to_string()),
+    };
+    let src = match self.sm1 {
+      Some(val) => val,
+      None => return Err("Missing Source State Machine definition (with_src)".to_string()),
+    };
+    let dst = match self.sm2 {
+      Some(val) => val,
+      None => return Err("Missing Destination State Machine Definition (with_dst)".to_string()),
+    };
+    Ok(Cascade{
+      sm1: src,
+      sm2: dst,
+      state: (src_state, dst_state),
+    })
+  }
+}
 #[cfg(test)]
 mod tests {
   use super::*;
