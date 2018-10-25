@@ -83,6 +83,9 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   fn is_composite(&self) -> bool {
     true
   }
+  fn get_current_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 struct CascadeBuilder<SM1,SM2>
   where SM1: super::StateMachine,
@@ -103,14 +106,14 @@ impl<SM1,SM2> CascadeBuilder<SM1,SM2>
       state: (None,None),
     }
   }
-  pub fn with_src(mut self, input: SM1, initial_state: <SM1>::StateType) -> CascadeBuilder<SM1,SM2> {
+  pub fn with_src(mut self, input: SM1) -> CascadeBuilder<SM1,SM2> {
     self.sm1 = Some(input);
-    self.state.0 = Some(initial_state);
+    self.state.0 = Some(sm1.get_current_state());
     self
   }
-  pub fn with_dst(mut self, input: SM2, initial_state: <SM2>::StateType) -> CascadeBuilder<SM1,SM2> {
+  pub fn with_dst(mut self, input: SM2) -> CascadeBuilder<SM1,SM2> {
     self.sm2 = Some(input);
-    self.state.1 = Some(initial_state);
+    self.state.1 = Some(sm2.get_current_state);
     self
   }
   pub fn build(self) -> Result<Cascade<SM1,SM2>,String> {
@@ -148,6 +151,18 @@ mod tests {
   use fork::Fork;
   use adder::Adder;
   use wire::Wire;
+  #[test]
+  fn it_builds_cascades() {
+    let accum1 = Accumulator::new(1i8);
+    let accum2 = Accumulator::new(2i8);
+    let test = CascadeBuilder::new()
+      .with_src(accum1)
+      .with_dst(accum2)
+      .build();
+    assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&0i8),((0i8,0i8),0i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,15i8),15i8));
+    assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,15i8),15i8));
+  }
   #[test]
   fn it_cascades_accumulators_next_values() {
     let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
