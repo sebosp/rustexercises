@@ -99,6 +99,9 @@ impl<SM> super::StateMachine for Feedback<SM>
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 // XXX: Add these functions on utils.rs.
 //impl<SM> Feedback<SM>

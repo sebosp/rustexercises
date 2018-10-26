@@ -155,6 +155,9 @@ impl super::StateMachine for SimpleParkingGate {
       GateState::Lowering => "State: Lowering".to_string(),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 impl SimpleParkingGate {
   fn output_state(&self, state: GateState) -> Option<String> {

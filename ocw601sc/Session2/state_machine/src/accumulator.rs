@@ -72,7 +72,7 @@ where T: Num + Display + Clone + Copy
       Some(outp) => format!("Out: {}", outp),
     }
   }
-  fn get_current_state(&self) -> Self::StateType{
+  fn get_state(&self) -> Self::StateType{
     self.state
   }
 }

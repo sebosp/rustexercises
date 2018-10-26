@@ -99,6 +99,9 @@ impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2>
       Some(outp) => format!("Out: ({},{})",self.sm1.verbose_output(outp.0.as_ref()),self.sm2.verbose_output(outp.1.as_ref()))
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 #[cfg(test)]
 mod tests {

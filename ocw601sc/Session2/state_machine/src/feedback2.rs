@@ -109,6 +109,9 @@ impl<SM,T> super::StateMachine for Feedback2<SM,T>
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 /*#[cfg(test)]
 mod tests {

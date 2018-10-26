@@ -81,6 +81,9 @@ impl super::StateMachine for ABC {
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 #[cfg(test)]
 mod tests {

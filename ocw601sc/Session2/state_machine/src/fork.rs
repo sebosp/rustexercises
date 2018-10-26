@@ -92,6 +92,9 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
   fn is_composite(&self) -> bool {
     true
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 #[cfg(test)]
 mod tests {

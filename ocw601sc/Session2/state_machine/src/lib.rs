@@ -42,7 +42,7 @@ pub trait StateMachine {
   /// Not all types of StateMachine use start and not all of them have a state
   fn start(&mut self);
   /// `get_current_state` returns the current state of the State Machine.
-  fn get_current_state(&self) -> Self::StateType;
+  fn get_state(&self) -> Self::StateType;
   /// `get_next_state` given an input and a state will return the next state.
   /// the returned value will be treated both as the output and the next state
   /// of the machine, `get_next_values` function uses it to compute both values
