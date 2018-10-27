@@ -96,6 +96,66 @@ impl<SM1,SM2> super::StateMachine for Fork<SM1,SM2>
     self.state
   }
 }
+pub struct ForkBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub sm1: Option<SM1>,
+  pub sm2: Option<SM2>,
+  pub state: (Option<<SM1>::StateType>,Option<<SM2>::StateType>),
+}
+impl<SM1,SM2> ForkBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine,
+        SM1: super::StateMachine<InputType=<SM2>::InputType>,
+        <SM1>::StateType: Clone + Copy,
+        <SM2>::StateType: Clone + Copy,
+        <SM1>::InputType: Clone + Copy,
+        <SM2>::InputType: Clone + Copy,
+        <SM1>::OutputType: PartialEq + Clone + Copy,
+        <SM2>::OutputType: PartialEq + Clone + Copy,
+{
+  pub fn new() -> ForkBuilder<SM1,SM2> {
+    ForkBuilder{
+      sm1: None,
+      sm2: None,
+      state: (None,None),
+    }
+  }
+  pub fn with_path1(mut self, input: SM1) -> ForkBuilder<SM1,SM2> {
+    self.state.0 = Some(input.get_state());
+    self.sm1 = Some(input);
+    self
+  }
+  pub fn with_path2(mut self, input: SM2) -> ForkBuilder<SM1,SM2> {
+    self.state.1 = Some(input.get_state());
+    self.sm2 = Some(input);
+    self
+  }
+  pub fn build(self) -> Result<Fork<SM1,SM2>,String> {
+    let state1 = match self.state.0 {
+      Some(val) => val,
+      None => return Err("Missing initial state for 1st State Machine".to_owned()),
+    };
+    let state2 = match self.state.1 {
+      Some(val) => val,
+      None => return Err("Missing initial state for 2nd State Machine.".to_string()),
+    };
+    let sm1 = match self.sm1 {
+      Some(val) => val,
+      None => return Err("Missing 1st State Machine definition (with_path)".to_string()),
+    };
+    let sm2 = match self.sm2 {
+      Some(val) => val,
+      None => return Err("Missing 2nd State Machine Definition (with_path)".to_string()),
+    };
+    Ok(Fork{
+      sm1: sm1,
+      sm2: sm2,
+      state: (state1, state2),
+    })
+  }
+}
 #[cfg(test)]
 mod tests {
   use super::*;
