@@ -143,11 +143,11 @@ impl<SM1,SM2> ForkBuilder<SM1,SM2>
     };
     let sm1 = match self.sm1 {
       Some(val) => val,
-      None => return Err("Missing 1st State Machine definition (with_path)".to_string()),
+      None => return Err("Missing 1st State Machine definition (with_path1)".to_string()),
     };
     let sm2 = match self.sm2 {
       Some(val) => val,
-      None => return Err("Missing 2nd State Machine Definition (with_path)".to_string()),
+      None => return Err("Missing 2nd State Machine Definition (with_path2)".to_string()),
     };
     Ok(Fork{
       sm1: sm1,
@@ -164,21 +164,30 @@ mod tests {
   use increment::Increment;
   #[test]
   fn it_get_next_values_accumulators() {
-    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    let test = ForkBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&0i8),((0i8,0i8), DualValues{val1: Some(0i8), val2: Some(0i8)}));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,12i8), DualValues{val1: Some(10i8), val2: Some(12i8)}));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,12i8), DualValues{val1: Some(10i8), val2: Some(12i8)}));
   }
   #[test]
   fn it_get_next_state_accumulators() {
-    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    let test = ForkBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.get_next_state(&(0i8,0i8),&0i8),Ok((0i8,0i8)));
     assert_eq!(test.get_next_state(&(3i8,5i8),&7i8),Ok((10i8,12i8)));
     assert_eq!(test.get_next_state(&(3i8,5i8),&7i8),Ok((10i8,12i8)));
   }
   #[test]
   fn it_steps_accumulators() {
-    let mut test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    let mut test = ForkBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3i8), DualValues{ val1: Some(4i8), val2: Some(5i8)});
     assert_eq!(test.state,(4i8,5i8));
     assert_eq!(test.step_unwrap(&5i8), DualValues{ val1: Some(9i8), val2: Some(10i8)});
@@ -186,7 +195,10 @@ mod tests {
   }
   #[test]
   fn it_steps_increments() {
-    let mut test: Fork<Increment<i64>,Increment<i64>> = Fork::new((100i64,1i64));
+    let mut test = ForkBuilder::new()
+      .with_path1(Increment::new(100i64))
+      .with_path2(Increment::new(1i64))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3i64), DualValues{ val1: Some(103i64), val2: Some(4i64)});
     assert_eq!(test.state,(100i64,1i64));
     assert_eq!(test.step_unwrap(&2i64), DualValues{ val1: Some(102i64), val2: Some(3i64)});
@@ -194,7 +206,10 @@ mod tests {
   }
   #[test]
   fn it_checks_is_composite() {
-    let test: Fork<Accumulator<i8>,Accumulator<i8>> = Fork::new((1i8,2i8));
+    let test = ForkBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.is_composite(),true);
   }
 }
