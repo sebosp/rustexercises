@@ -5,3 +5,7 @@ authors = ["Seb Ospina <kraige@gmail.com>"]
 
 [dependencies]
 num-traits = "0.2"
+treexml = "0.6"
+serde_json = "1.0.32"
+node2object = "0.1.2"
+
