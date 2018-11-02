@@ -21,6 +21,7 @@ pub mod simple_parking_gate;
 pub mod increment;
 pub mod negation;
 pub mod wire;
+pub mod xml_to_json;
 // Composite machines:
 pub mod adder;
 pub mod multiplier;
