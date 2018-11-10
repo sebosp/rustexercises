@@ -21,13 +21,25 @@ mod tests {
   use state_machine::fork::*;
   #[test]
   fn test_cascade_delay() {
-    let mut cascade: Cascade<Delay<i64>,Delay<i64>> = Cascade::new((99i64,22i64));
+    let mut cascade = CascadeBuilder::new()
+      .with_src(Delay::new(99i64))
+      .with_dst(Delay::new(22i64))
+      .build().unwrap();
     let transduce_res: Vec<Result<i64,String>> = cascade.transduce_wrap_unwrap(vec![3i64,8i64,2i64,4i64,6i64,5i64],true, true);
     assert_eq!(transduce_res, vec![Ok(22i64), Ok(99i64), Ok(3i64), Ok(8i64), Ok(2i64), Ok(4i64)]);
   }
   #[test]
   fn it_feedbacks_cascades_increment_to_delay() {
-    let mut feedback: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((2i64,3i64));
+    let mut feedback = FeedbackBuilder::new()
+      .with_inner(
+        CascadeBuilder::new()
+          .with_src(Increment::new(2i64))
+          .with_dst(Delay::new(3i64))
+          .build().unwrap()
+      )
+      .build().unwrap();
+    //let mut feedback: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((2i64,3i64));
+    //let mut feedback: Feedback<_> = StateMachine::new((2i64,3i64));
     let transduce_res: Vec<Result<Option<i64>,String>> = feedback.transduce(vec![None, None, None, None, None, None],true, true);
     assert_eq!(transduce_res, vec![Ok(Some(3i64)), Ok(Some(5i64)), Ok(Some(7i64)), Ok(Some(9i64)), Ok(Some(11i64)), Ok(Some(13i64))]);
   }

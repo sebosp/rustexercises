@@ -80,6 +80,9 @@ where T: Num + Display + Clone + Copy + FromPrimitive + ToPrimitive,
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 #[cfg(test)]
 mod tests {

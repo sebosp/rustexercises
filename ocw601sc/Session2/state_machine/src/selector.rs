@@ -79,6 +79,9 @@ where T: Debug + Clone + Copy
   fn state_machine_name(&self) -> String {
     "Selector".to_string()
   }
+  fn get_state(&self) -> Self::StateType{
+    self.k
+  }
 }
 #[cfg(test)]
 mod tests {

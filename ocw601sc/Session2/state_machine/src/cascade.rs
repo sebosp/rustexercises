@@ -83,6 +83,62 @@ impl<SM1,SM2> super::StateMachine for Cascade<SM1,SM2>
   fn is_composite(&self) -> bool {
     true
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
+}
+pub struct CascadeBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub sm1: Option<SM1>,
+  pub sm2: Option<SM2>,
+  pub state: (Option<<SM1>::StateType>,Option<<SM2>::StateType>),
+}
+impl<SM1,SM2> CascadeBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub fn new() -> CascadeBuilder<SM1,SM2> {
+    CascadeBuilder{
+      sm1: None,
+      sm2: None,
+      state: (None,None),
+    }
+  }
+  pub fn with_src(mut self, input: SM1) -> CascadeBuilder<SM1,SM2> {
+    self.state.0 = Some(input.get_state());
+    self.sm1 = Some(input);
+    self
+  }
+  pub fn with_dst(mut self, input: SM2) -> CascadeBuilder<SM1,SM2> {
+    self.state.1 = Some(input.get_state());
+    self.sm2 = Some(input);
+    self
+  }
+  pub fn build(self) -> Result<Cascade<SM1,SM2>,String> {
+    let src_state = match self.state.0 {
+      Some(val) => val,
+      None => return Err("Missing initial state for Source State Machine".to_owned()),
+    };
+    let dst_state = match self.state.1 {
+      Some(val) => val,
+      None => return Err("Missing initial state for Destination State Machine.".to_string()),
+    };
+    let src = match self.sm1 {
+      Some(val) => val,
+      None => return Err("Missing Source State Machine definition (with_src)".to_string()),
+    };
+    let dst = match self.sm2 {
+      Some(val) => val,
+      None => return Err("Missing Destination State Machine Definition (with_dst)".to_string()),
+    };
+    Ok(Cascade{
+      sm1: src,
+      sm2: dst,
+      state: (src_state, dst_state),
+    })
+  }
 }
 #[cfg(test)]
 mod tests {
@@ -92,19 +148,34 @@ mod tests {
   use average2::Average2;
   use delay::Delay;
   use increment::Increment;
-  use fork::Fork;
+  use fork::*;
   use adder::Adder;
   use wire::Wire;
   #[test]
+  fn it_builds_cascades() {
+    let test = CascadeBuilder::new()
+      .with_src(Accumulator::new(1i8))
+      .with_dst(Accumulator::new(2i8))
+      .build().unwrap();
+    let test2: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
+    assert_eq!(test.state_machine_name(),test2.state_machine_name());
+  }
+  #[test]
   fn it_cascades_accumulators_next_values() {
-    let test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
+    let test = CascadeBuilder::new()
+      .with_src(Accumulator::new(1i8))
+      .with_dst(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&0i8),((0i8,0i8),0i8));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,15i8),15i8));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&7i8),((10i8,15i8),15i8));
   }
   #[test]
   fn it_cascades_accumulators_steps() {
-    let mut test: Cascade<Accumulator<i8>,Accumulator<i8>> = Cascade::new((1i8,2i8));
+    let mut test = CascadeBuilder::new()
+      .with_src(Accumulator::new(1i8))
+      .with_dst(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3i8),6i8);
     assert_eq!(test.state,(4i8,6i8));
     assert_ne!(test.step_unwrap(&3i8),6i8);
@@ -114,13 +185,19 @@ mod tests {
   fn it_cascades_average2_next_values() {
     // Cascade needs to be Trait `StateMachine` compliant, for Average2
     // the OutputType in hardcoded as f64, thus it can only be f64
-    let test: Cascade<Average2<f64>,Average2<f64>> = Cascade::new((1f64,2f64));
+    let test = CascadeBuilder::new()
+      .with_src(Average2::new(1f64))
+      .with_dst(Average2::new(2f64))
+      .build().unwrap();
     assert_eq!(test.get_next_values_wrap_unwrap(&(0f64,0f64),&0f64),((0f64,0f64),0f64));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3f64,5f64),&7f64),((7f64,5f64),5f64));
   }
   #[test]
   fn it_cascades_average2_steps() {
-    let mut test: Cascade<Average2<f64>,Average2<f64>> = Cascade::new((1f64,2f64));
+    let mut test = CascadeBuilder::new()
+      .with_src(Average2::new(1f64))
+      .with_dst(Average2::new(2f64))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3f64),2f64);
     assert_eq!(test.state,(3f64,2f64));
     assert_eq!(test.step_unwrap(&2f64),2.25f64);
@@ -128,7 +205,10 @@ mod tests {
   }
   #[test]
   fn it_cascades_delay_to_increment() {
-    let mut test: Cascade<Delay<i64>,Increment<i64>> = Cascade::new((100i64,1i64));
+    let mut test = CascadeBuilder::new()
+      .with_src(Delay::new(100i64))
+      .with_dst(Increment::new(1i64))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3i64),101i64);
     assert_eq!(test.state,(3i64,1i64));
     assert_eq!(test.step_unwrap(&2i64),4i64);
@@ -136,7 +216,10 @@ mod tests {
   }
   #[test]
   fn it_cascades_increment_to_delay() {
-    let mut test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((1i64,100i64));
+    let mut test = CascadeBuilder::new()
+      .with_src(Increment::new(1i64))
+      .with_dst(Delay::new(100i64))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&3i64),100i64);
     assert_eq!(test.state,(1i64,4i64));
     assert_eq!(test.step_unwrap(&2i64),4i64);
@@ -144,7 +227,10 @@ mod tests {
   }
   #[test]
   fn it_cascades_increment_to_delay_next_values_none() {
-    let test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((2i64,3i64));
+    let test = CascadeBuilder::new()
+      .with_src(Increment::new(2i64))
+      .with_dst(Delay::new(3i64))
+      .build().unwrap();
     assert_eq!(test.get_next_values(&(2i64,3i64),None),Ok(((2i64,3i64),Some(3i64))));
     assert_eq!(test.get_next_values_wrap_unwrap(&(2i64,3i64),&3i64),((2i64,5i64),3i64));
     assert_eq!(test.get_next_values_wrap_unwrap(&(2i64,5i64),&3i64),((2i64,5i64),5i64));
@@ -157,23 +243,40 @@ mod tests {
   }
   #[test]
   fn it_checks_is_composite() {
-    let test: Cascade<Increment<i64>,Delay<i64>> = Cascade::new((2i64,3i64));
+    let test = CascadeBuilder::new()
+      .with_src(Increment::new(2i64))
+      .with_dst(Delay::new(3i64))
+      .build().unwrap();
     assert_eq!(test.is_composite(),true);
   }
   #[test]
   fn it_forks_two_delays_plus_wire() {
     // Exercise 4.7 without Feedback
-    let mut test:
-      Cascade<
-        Fork<       //Init|None  |1  |1  |1  |2  |3  |4  |6  |
-          Wire<i64>,   //0|None>0|1>1|1>1|1>1|2>2|3>3|4>4|6>6|
-          Cascade<     // |      |        
-            Delay<i64>,//0|None>0|1>0|1>1|1>1|2>1|3>2|4>3|6>4|
-            Delay<i64> //1|   0>1|0>0|1>0|1>1|1>1|2>1|3>2|4>3|
-          >
-        >,
-        Adder<i64>     //0|     1|  1|  1|  2|  3|  4|  6|  9|
-      > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
+    let inner_cascade = CascadeBuilder::new()
+      .with_src(Delay::new(0i64))
+      .with_dst(Delay::new(1i64))
+      .build().unwrap();
+    let mut test = CascadeBuilder::new()
+      .with_src(
+        ForkBuilder::new()
+          .with_path1(Wire::new(0i64))
+          .with_path2(inner_cascade)
+          .build().unwrap()
+      )
+      .with_dst(Adder::new(0i64))
+      .build().unwrap();
+    //Without Builder:
+    //let mut test:
+    //  Cascade<
+    //    //Fork<    //   //Init|None  |1  |1  |1  |2  |3  |4  |6  |
+    //    //  Wire<i64>,   //0|None>0|1>1|1>1|1>1|2>2|3>3|4>4|6>6|
+    //    //  Cascade<    // // |    //  |    //    //
+    //    //    //Delay<i64>,//0|None>0|1>0|1>1|1>1|2>1|3>2|4>3|6>4|
+    //    //    //Delay<i64> //1|   0>1|0>0|1>0|1>1|1>1|2>1|3>2|4>3|
+    //    //  >
+    //    //>,
+    //    //Adder<i64>    // //0|    // 1|  1|  1|  2|  3|  4|  6|  9|
+    //  > = StateMachine::new(((0i64,(0i64, 1i64)),0i64));
 
     assert_eq!(test.step(None,       true,0),Ok(Some(1i64)));
     assert_eq!(test.step(Some(&1i64),true,0),Ok(Some(1i64)));

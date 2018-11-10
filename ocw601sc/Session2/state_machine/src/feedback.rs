@@ -99,6 +99,50 @@ impl<SM> super::StateMachine for Feedback<SM>
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
+}
+pub struct FeedbackBuilder<SM>
+  where SM: super::StateMachine,
+        SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
+        <SM>::StateType: Clone + Copy,
+        <SM>::OutputType: Display,
+{
+  pub sm: Option<SM>,
+  pub state: Option<<SM>::StateType>,
+}
+impl<SM> FeedbackBuilder<SM>
+  where SM: super::StateMachine,
+        SM: super::StateMachine<InputType=<SM as super::StateMachine>::OutputType>,
+        <SM>::StateType: Clone + Copy,
+        <SM>::OutputType: Display,
+{
+  pub fn new() -> FeedbackBuilder<SM> {
+    FeedbackBuilder{
+      sm: None,
+      state: None,
+    }
+  }
+  pub fn with_inner(mut self, input: SM) -> FeedbackBuilder<SM> {
+    self.state = Some(input.get_state());
+    self.sm = Some(input);
+    self
+  }
+  pub fn build(self) -> Result<Feedback<SM>,String> {
+    let state = match self.state {
+      Some(val) => val,
+      None => return Err("Missing initial state for Inner State Machine".to_owned()),
+    };
+    let sm = match self.sm {
+      Some(val) => val,
+      None => return Err("Missing Inner State Machine definition (with_inner)".to_string()),
+    };
+    Ok(Feedback{
+      sm: sm,
+      state: state,
+    })
+  }
 }
 // XXX: Add these functions on utils.rs.
 //impl<SM> Feedback<SM>
@@ -121,10 +165,17 @@ mod tests {
   use super::super::*;
   use delay::Delay;
   use increment::Increment;
-  use cascade::Cascade;
+  use cascade::*;
   #[test]
   fn it_feedbacks_cascades_increment_to_delay_next_val() {
-    let test: Feedback<Cascade<Increment<i64>,Delay<i64>>> = StateMachine::new((2i64,3i64));
+    let test = FeedbackBuilder::new()
+      .with_inner(
+        CascadeBuilder::new()
+          .with_src(Increment::new(2i64))
+          .with_dst(Delay::new(3i64))
+          .build().unwrap()
+        )
+      .build().unwrap();
     assert_eq!(test.get_next_values(&(2i64,3i64),None),Ok(((2i64,5i64),Some(3i64))));
     assert_eq!(test.get_next_values(&(2i64,5i64),None),Ok(((2i64,7i64),Some(5i64))));
     assert_eq!(test.get_next_values(&(2i64,7i64),None),Ok(((2i64,9i64),Some(7i64))));

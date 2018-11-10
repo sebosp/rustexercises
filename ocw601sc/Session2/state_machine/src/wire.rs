@@ -66,6 +66,9 @@ where T: Display + Clone + Copy
       Some(outp) => format!("Out: {}", outp),
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
 }
 #[cfg(test)]
 mod tests {

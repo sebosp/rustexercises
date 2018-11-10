@@ -99,6 +99,66 @@ impl<SM1,SM2> super::StateMachine for Parallel<SM1,SM2>
       Some(outp) => format!("Out: ({},{})",self.sm1.verbose_output(outp.0.as_ref()),self.sm2.verbose_output(outp.1.as_ref()))
     }
   }
+  fn get_state(&self) -> Self::StateType{
+    self.state
+  }
+}
+pub struct ParallelBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine
+{
+  pub sm1: Option<SM1>,
+  pub sm2: Option<SM2>,
+  pub state: (Option<<SM1>::StateType>,Option<<SM2>::StateType>),
+}
+impl<SM1,SM2> ParallelBuilder<SM1,SM2>
+  where SM1: super::StateMachine,
+        SM2: super::StateMachine,
+        <SM1>::StateType: Clone + Copy,
+        <SM2>::StateType: Clone + Copy,
+        <SM1>::InputType: Clone + Copy,
+        <SM2>::InputType: Clone + Copy,
+{
+  pub fn new() -> ParallelBuilder<SM1,SM2> {
+    ParallelBuilder{
+      sm1: None,
+      sm2: None,
+      state: (None,None),
+    }
+  }
+  pub fn with_path1(mut self, input: SM1) -> ParallelBuilder<SM1,SM2> {
+    self.state.0 = Some(input.get_state());
+    self.sm1 = Some(input);
+    self
+  }
+  pub fn with_path2(mut self, input: SM2) -> ParallelBuilder<SM1,SM2> {
+    self.state.1 = Some(input.get_state());
+    self.sm2 = Some(input);
+    self
+  }
+  pub fn build(self) -> Result<Parallel<SM1,SM2>,String> {
+    let state1 = match self.state.0 {
+      Some(val) => val,
+      None => return Err("Missing initial state for 1st State Machine".to_owned()),
+    };
+    let state2 = match self.state.1 {
+      Some(val) => val,
+      None => return Err("Missing initial state for 2nd State Machine.".to_string()),
+    };
+    let sm1 = match self.sm1 {
+      Some(val) => val,
+      None => return Err("Missing 1st State Machine definition (with_path1)".to_string()),
+    };
+    let sm2 = match self.sm2 {
+      Some(val) => val,
+      None => return Err("Missing 2nd State Machine Definition (with_path2)".to_string()),
+    };
+    Ok(Parallel{
+      sm1: sm1,
+      sm2: sm2,
+      state: (state1, state2),
+    })
+  }
 }
 #[cfg(test)]
 mod tests {
@@ -108,21 +168,30 @@ mod tests {
   use increment::Increment;
   #[test]
   fn it_get_next_values_accumulators() {
-    let test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
+    let test = ParallelBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.get_next_values_wrap_unwrap(&(0i8,0i8),&(0i8,0i8)),((0i8,0i8),(Some(0i8),Some(0i8))));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&(7i8,7i8)),((10i8,12i8),(Some(10i8),Some(12i8))));
     assert_eq!(test.get_next_values_wrap_unwrap(&(3i8,5i8),&(7i8,7i8)),((10i8,12i8),(Some(10i8),Some(12i8))));
   }
   #[test]
   fn it_get_next_state_accumulators() {
-    let test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
+    let test = ParallelBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.get_next_state(&(0i8,0i8),&(0i8,0i8)),Ok((0i8,0i8)));
     assert_eq!(test.get_next_state(&(3i8,5i8),&(7i8,7i8)),Ok((10i8,12i8)));
     assert_eq!(test.get_next_state(&(3i8,5i8),&(7i8,7i8)),Ok((10i8,12i8)));
   }
   #[test]
   fn it_steps_accumulators() {
-    let mut test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
+    let mut test = ParallelBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&(3i8,3i8)),(Some(4i8),Some(5i8)));
     assert_eq!(test.state,(4i8,5i8));
     assert_eq!(test.step_unwrap(&(5i8,5i8)),(Some(9i8),Some(10i8)));
@@ -130,7 +199,10 @@ mod tests {
   }
   #[test]
   fn it_steps_increments() {
-    let mut test: Parallel<Increment<i64>,Increment<i64>> = Parallel::new((100i64,1i64));
+    let mut test = ParallelBuilder::new()
+      .with_path1(Increment::new(100i64))
+      .with_path2(Increment::new(1i64))
+      .build().unwrap();
     assert_eq!(test.step_unwrap(&(3i64,3i64)),(Some(103i64),Some(4i64)));
     assert_eq!(test.state,(100i64,1i64));
     assert_eq!(test.step_unwrap(&(2i64,2i64)),(Some(102i64),Some(3i64)));
@@ -138,7 +210,10 @@ mod tests {
   }
   #[test]
   fn it_checks_is_composite() {
-    let test: Parallel<Accumulator<i8>,Accumulator<i8>> = Parallel::new((1i8,2i8));
+    let test = ParallelBuilder::new()
+      .with_path1(Accumulator::new(1i8))
+      .with_path2(Accumulator::new(2i8))
+      .build().unwrap();
     assert_eq!(test.is_composite(),true);
   }
 }
