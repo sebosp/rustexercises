@@ -1,0 +1,11 @@
+[package]
+name = "go_kit"
+version = "0.1.0"
+authors = ["Seb Ospina <kraige@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rocket_contrib = "0.3.17"
+serde = "1.0.80"
+serde_derive = "1.0.80"
+serde_json = "1.0.33"
