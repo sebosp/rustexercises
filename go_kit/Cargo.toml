@@ -12,3 +12,5 @@ serde = "1.0.80"
 # Support for #[derive(Serialize, Deserialize)]. 
 serde_derive = "1.0.80"
 serde_json = "1.0.33"
+jsonrpc-core = "9.0.0"
+# jsonrpc-macros = "9.0.0" # broken on nightly.
