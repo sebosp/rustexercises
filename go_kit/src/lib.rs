@@ -2,33 +2,27 @@
 //! This file contains the business logic of our microservices
 // import "context"
 
-// The RequestResponse is handled by using rocket_contrib::Json
-pub mod json;
+extern crate jsonrpc_core;
+// jsonrpc_macros are broken on nightly (https://github.com/paritytech/jsonrpc/issues/328)
+// #[macro_use]
+// extern crate jsonrpc_macros;
 
-// use rocket_contrib::json::Json;
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
+// The RequestResponse is handled by using serde_json
+pub mod jsonrpc;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StringService {
-  data: String
-}
+
+pub struct StringService;
 
 impl StringService {
-  pub fn new(data: String) -> StringService {
-    StringService{
-      data: data
-    }
-  }
-	pub fn uppercase(&self) -> Result<String, String> {
-    if self.data == "" {
+	fn uppercase(input: String) -> Result<String, String> {
+    if input== "" {
 		 Err("Empty String".to_owned())
     } else {
-	    Ok(self.data.to_ascii_uppercase())
+	    Ok(input.to_ascii_uppercase())
     }
   }
-	pub fn count(&self) -> usize {
-    self.data.len()
+	fn count(input: String) -> usize {
+    input.len()
   }
 }
 
@@ -38,25 +32,25 @@ mod tests {
 
   #[test]
   fn it_uppercases_filled_string() {
-      let test_service = StringService::new("test".to_owned());
-      assert_eq!(test_service.uppercase(),Ok("TEST".to_owned()));
+      let test_uppercase = StringService::uppercase("test".to_owned());
+      assert_eq!(test_uppercase,Ok("TEST".to_owned()));
   }
 
   #[test]
   fn it_uppercases_empty_string() {
-      let test_service = StringService::new("".to_owned());
-      assert_eq!(test_service.uppercase(),Err("Empty String".to_owned()));
+      let test_uppercase = StringService::uppercase("".to_owned());
+      assert_eq!(test_uppercase,Err("Empty String".to_owned()));
   }
 
     #[test]
   fn it_counts_filled_string() {
-      let test_service = StringService::new("test".to_owned());
-      assert_eq!(test_service.count(),4usize);
+      let test_count = StringService::count("test".to_owned());
+      assert_eq!(test_count,4usize);
   }
 
   #[test]
   fn it_counts_empty_string() {
-      let test_service = StringService::new("".to_owned());
-      assert_eq!(test_service.count(),0usize);
+      let test_count = StringService::count("".to_owned());
+      assert_eq!(test_count,0usize);
   }
 }
