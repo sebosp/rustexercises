@@ -12,18 +12,34 @@ use jsonrpc_core::*;
 // 	}
 // }
 
+pub trait GoKitJsonRpc {
+	type ServiceType;
+	fn new_rpc() -> IoHandler{
+		IoHandler::default()
+	}
+	fn add_method(name: String, function: Params) -> IoHandler;
+	fn finish() -> IoHandler;
+}
+
+impl GoKitJsonRpc for StringService {
+	pub fn add_method("uppercase".to_string(),|params: Params|{
+
+	})
+	pub fn finish() -> IoHandler;{
+		self.rpc
+	}
+}
 pub fn setup_rpc() -> IoHandler {
-	let mut io = IoHandler::default();
+	
 	
 	io.add_method("uppercase", |params: Params| {
 		let uppercase = match params.parse().unwrap() {
 			jsonrpc_core::Params::Array(a) => StringService::uppercase(a[0].to_string()),
-			jsonrpc_core::Params::Map(m) => StringService::uppercase(m["key"].to_string()),
-			_ => StringService::uppercase("unknown".to_string()),
+			_ => Err("unsupported type".to_string()),
 		};
 		match uppercase {
 			Ok(value) => Ok(Value::String(value)),
-			Err(err) => Ok(Value::String(err)),
+			Err(err) => Err(Value::String(err)),
 		}
 	});
 	io
@@ -36,7 +52,7 @@ mod tests {
 
   #[test]
   fn it_uppercases_filled_string() {
-		let io = setup_rpc();
+	  let io = StringService::new_rpc();
 	  let request = r#"{"jsonrpc": "2.0", "method": "uppercase", "params": ["test"], "id": 1}"#;
 	  let response = r#"{"jsonrpc":"2.0","result":"\"TEST\"","id":1}"#;
     assert_eq!(io.handle_request_sync(request), Some(response.to_owned()));

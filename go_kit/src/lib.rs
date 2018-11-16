@@ -9,48 +9,50 @@ extern crate jsonrpc_core;
 
 // The RequestResponse is handled by using serde_json
 pub mod jsonrpc;
+use jsonrpc_core::*;
 
-
-pub struct StringService;
+pub struct StringService{
+    rpc: IoHandler
+}
 
 impl StringService {
-	fn uppercase(input: String) -> Result<String, String> {
+    fn uppercase(input: String) -> Result<String, String> {
     if input== "" {
-		 Err("Empty String".to_owned())
+            Err("Empty String".to_owned())
     } else {
-	    Ok(input.to_ascii_uppercase())
+        Ok(input.to_ascii_uppercase())
     }
-  }
-	fn count(input: String) -> usize {
-    input.len()
-  }
+    }
+    fn count(input: String) -> usize {
+        input.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-
-  #[test]
-  fn it_uppercases_filled_string() {
-      let test_uppercase = StringService::uppercase("test".to_owned());
-      assert_eq!(test_uppercase,Ok("TEST".to_owned()));
-  }
-
-  #[test]
-  fn it_uppercases_empty_string() {
-      let test_uppercase = StringService::uppercase("".to_owned());
-      assert_eq!(test_uppercase,Err("Empty String".to_owned()));
-  }
+    use super::*;
 
     #[test]
-  fn it_counts_filled_string() {
-      let test_count = StringService::count("test".to_owned());
-      assert_eq!(test_count,4usize);
-  }
+    fn it_uppercases_filled_string() {
+        let test_uppercase = StringService::uppercase("test".to_owned());
+        assert_eq!(test_uppercase,Ok("TEST".to_owned()));
+    }
 
-  #[test]
-  fn it_counts_empty_string() {
-      let test_count = StringService::count("".to_owned());
-      assert_eq!(test_count,0usize);
-  }
+    #[test]
+    fn it_uppercases_empty_string() {
+        let test_uppercase = StringService::uppercase("".to_owned());
+        assert_eq!(test_uppercase,Err("Empty String".to_owned()));
+    }
+
+    #[test]
+    fn it_counts_filled_string() {
+        let test_count = StringService::count("test".to_owned());
+        assert_eq!(test_count,4usize);
+    }
+
+    #[test]
+    fn it_counts_empty_string() {
+        let test_count = StringService::count("".to_owned());
+        assert_eq!(test_count,0usize);
+    }
 }
