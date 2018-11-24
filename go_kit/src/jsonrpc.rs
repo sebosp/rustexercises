@@ -42,7 +42,6 @@ pub fn setup_rpc() -> IoHandler {
 			Err(err) => Err(Value::String(err)),
 		}
 	});
-	io
 }
 
 
