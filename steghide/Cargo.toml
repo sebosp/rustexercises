@@ -1,0 +1,8 @@
+[package]
+name = "steghide"
+version = "0.1.0"
+authors = ["Seb Ospina <kraige@gmail.com>"]
+
+[dependencies.clap]
+version = "2.32"
+features = [ "yaml" ]
