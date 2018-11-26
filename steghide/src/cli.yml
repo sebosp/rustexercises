@@ -7,124 +7,121 @@ args:
         help: The operating mode for steghide
         required: true
         index: 1
+        possible_values:
+            - embed
+            - extract
+            - help
+            - info
     - passphrase:
-        short: p
         long: passphrase
         value_name: PASSPHRASE
         help: The passphrase that protects the file
         takes_value: true
         required: true
     - embedfile:
-        short: ef
         long: embedfile
         value_name: FILE
         help: The file to embed?
         takes_value: true
     - extractfile:
-        short: xf
         long: extractfile
         value_name: FILE
         help: The destination of the extraction
-        required: true
     - coverfile:
-        short: cf
         long: coverfile
         value_name: FILE
         help: The cover filename, requires embed
         takes_value: true
     - stegofile:
-        short: sf
         long: stegofile
         value_name: FILE
         help: The stego filename
         takes_value: true
     - nochecksum:
-        short: K
         long: nochecksum
         help: Turn off checksum
     - compress:
-        short: z
         long: compress
         value_name: LEVEL
         help: The compression level
         takes_value: true
     - dontcompress:
-        short: Z
         long: dontcompress
         help: Set compression level to 0
     - dontembedname:
-        short: N
         long: dontembedname
         help: Do not embed the name of the input file
-    - encryption:
-        short: e
-        long: encryption
-        value_name: ALGORITHM
-        help: The algorithms to support, can be used several times
-        takes_value: true
-        multiple: true
     - radius:
-        short: r
         long: radius
         value_name: RADIUS
         help: The neighbourhood radius
         takes_value: true
     - goal:
-        short: g
         long: goal
         value_name: NUMBER
         help: The goal, a number from 0 to 100
         takes_value: true
     - marker:
-        short: m
         long: marker
         value_name: MARKER
         help: The marker for extracting or embedding
         takes_value: true
     - force:
-        short: f
         long: force
         help: Force the extraction or embedding
     - quiet:
-        short: q
         long: quiet
         help: No verbosity
-    - verbose:
-        short: v
+    - verbosity:
         long: verbosity
+        value_name: NUMBER
         help: Sets the level of verbosity
-        multiple: true
+        possible_values: ["0","1","2","3","4"]
     - printgraph:
-        short: pg
         long: printgraph
         help: Debug mode for printing graph
     - printgmlgraph:
-        short: pgmlg
         long: printgmlgraph
         help: Debug mode for printing graph
     - printgmlvertexrecdepth:
-        short: pgmlvrd
         long: printgmlvertexrecdepth
         value_name: NUMBER
         help: Debug mode for print gml, rectangular depth input
         takes_value: true
     - printgmlvertexstartvertex:
-        short: pgmlvsv
         long: printgmlvertexstartvertex
         value_name: NUMBER
         help: The Debug mode for print gml, start vertex input
         takes_value: true
     - debuglevel:
-        short: d
         long: debuglevel
         value_name: NUMBER
         help: Debug level
         takes_value: true
     - printstats:
-        short: ps
         long: printstats
         help: Print statistics
     - check:
-        short: c
         long: check
         help: Check a file can be embedded
+    - encinfo:
+        long: encinfo
+        help: Shows the supported encryption algorithms
+    - info:
+        long: info
+        help: Returns information about a embedded data
+    - timestamps:
+        long: timestamps
+        help: Show timestamps for the operations
+        takes_value: true
+        possible_values:
+            - none
+            - sec
+            - ms
+            - ns
+    - encryption:
+        long: encryption
+        value_name: ALGORITHM
+        help: The algorithms to support, can be used several times
+        takes_value: true
+        multiple: true
