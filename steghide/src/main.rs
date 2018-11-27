@@ -1,8 +1,18 @@
+extern crate steghide;
 #[macro_use]
-extern crate clap; 
+extern crate log;
 
-pub mod command;
+use steghide::command;
+
 fn main() {
-    command::parse_arguments();
-    println!("Hello, world!");
+    std::process::exit(match command::run_from_arguments() {
+        Ok(()) => {
+            info!("Successfully handled request. Exiting");
+            0
+        }
+        Err(msg) => {
+            error!("{}",msg);
+            1
+        }
+    })
 }
