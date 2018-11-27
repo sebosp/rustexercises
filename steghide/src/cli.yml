@@ -10,8 +10,8 @@ args:
         possible_values:
             - embed
             - extract
-            - help
             - info
+            - encinfo
     - passphrase:
         long: passphrase
         value_name: PASSPHRASE
