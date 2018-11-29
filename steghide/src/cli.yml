@@ -82,28 +82,22 @@ args:
         help: Debug mode for printing graph
     - printgmlgraph:
         long: printgmlgraph
-        help: Debug mode for printing graph
-    - printgmlvertexrecdepth:
-        long: printgmlvertexrecdepth
-        value_name: NUMBER
-        help: Debug mode for print gml, rectangular depth input
-        takes_value: true
-    - printgmlvertexstartvertex:
-        long: printgmlvertexstartvertex
-        value_name: NUMBER
-        help: The Debug mode for print gml, start vertex input
+        help: Debug mode for printing gml graph
+    - printgmlvertex:
+        long: printgmlvertex
+        help: Debug mode for print gml, takes two comma separated inputs, RecDepth and StartVertex
         takes_value: true
     - debuglevel:
         long: debuglevel
         value_name: NUMBER
-        help: Debug level
+        help: Debug mode level
         takes_value: true
     - printstats:
         long: printstats
-        help: Print statistics
+        help: Debug mode Print statistics
     - check:
         long: check
-        help: Check a file can be embedded
+        help: Debug mode for check a file can be embedded
     - encinfo:
         long: encinfo
         help: Shows the supported encryption algorithms
