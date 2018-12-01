@@ -3,6 +3,10 @@ name = "steghide"
 version = "0.1.0"
 authors = ["Seb Ospina <kraige@gmail.com>"]
 
+[dependencies]
+log = "0.4"
+stderrlog = "0.4"
+
 [dependencies.clap]
 version = "2.32"
 features = [ "yaml" ]
