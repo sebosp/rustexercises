@@ -98,12 +98,6 @@ args:
     - check:
         long: check
         help: Debug mode for check a file can be embedded
-    - encinfo:
-        long: encinfo
-        help: Shows the supported encryption algorithms
-    - info:
-        long: info
-        help: Returns information about a embedded data
     - timestamps:
         long: timestamps
         help: Show timestamps for the operations
