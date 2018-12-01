@@ -32,5 +32,33 @@ impl EncryptionAlgorithm{
             cipher: None,
         }
     }
-
+    pub fn from_string(cipher: String) -> EncryptionAlgorithm {
+        let algo_cipher = match cipher.as_ref() {
+            "Twofish" => Some(EncryptionAlgorithmCipher::Twofish),
+            "Rijndael128" => Some(EncryptionAlgorithmCipher::Rijndael128),
+            "Rijndael192" => Some(EncryptionAlgorithmCipher::Rijndael192),
+            "Rijndael256" => Some(EncryptionAlgorithmCipher::Rijndael256),
+            "Saferplus" => Some(EncryptionAlgorithmCipher::Saferplus),
+            "Rc2" => Some(EncryptionAlgorithmCipher::Rc2),
+            "Xtea" => Some(EncryptionAlgorithmCipher::Xtea),
+            "Serpent" => Some(EncryptionAlgorithmCipher::Serpent),
+            "Safersk64" => Some(EncryptionAlgorithmCipher::Safersk64),
+            "Safersk128" => Some(EncryptionAlgorithmCipher::Safersk128),
+            "Cast256" => Some(EncryptionAlgorithmCipher::Cast256),
+            "Loki97" => Some(EncryptionAlgorithmCipher::Loki97),
+            "Gost" => Some(EncryptionAlgorithmCipher::Gost),
+            "Threeway" => Some(EncryptionAlgorithmCipher::Threeway),
+            "Cast128" => Some(EncryptionAlgorithmCipher::Cast128),
+            "Blowfish" => Some(EncryptionAlgorithmCipher::Blowfish),
+            "Des" => Some(EncryptionAlgorithmCipher::Des),
+            "Tripledes" => Some(EncryptionAlgorithmCipher::Tripledes),
+            "Enigma" => Some(EncryptionAlgorithmCipher::Enigma),
+            "Arcfour" => Some(EncryptionAlgorithmCipher::Arcfour),
+            "Panama" => Some(EncryptionAlgorithmCipher::Panama),
+            "Wake" => Some(EncryptionAlgorithmCipher::Wake),
+        };
+        EncryptionAlgorithm {
+            cipher: algo_cipher,
+        }
+    }
 }
