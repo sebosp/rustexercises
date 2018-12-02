@@ -8,13 +8,15 @@ extern crate clap;
 #[macro_use]
 extern crate log;
 extern crate stderrlog;
+extern crate rpassword;
 
 pub mod cli;
 pub mod encryption_algorithm;
 pub mod encryption_mode;
 
 /// `CommandMode` defines methods of operations of the library
-enum CommandMode {
+#[derive(PartialEq)]
+pub enum CommandMode {
     Embed,
     Extract,
     Info,
@@ -23,7 +25,8 @@ enum CommandMode {
 }
 
 /// `DebugMode` defines different way to show debug information on the operations
-enum DebugMode {
+#[derive(PartialEq)]
+pub enum DebugMode {
     PrintGraph,
     PrintGmlGraph,
     PrintGmlVertex(u64,u64), // RecDepth, StartVertex
@@ -33,6 +36,7 @@ enum DebugMode {
 } 
 
 /// `StegHideSetup` contains a request for the library to operate on
+#[derive(PartialEq)]
 pub struct StegHideSetup{
     passphrase: String,
     compression_level: u8,
