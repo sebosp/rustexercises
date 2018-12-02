@@ -32,7 +32,7 @@ impl EncryptionAlgorithm{
             cipher: None,
         }
     }
-    pub fn from_string(cipher: String) -> EncryptionAlgorithm {
+    pub fn from_string(cipher: String) -> Result<EncryptionAlgorithm,String> {
         let algo_cipher = match cipher.as_ref() {
             "Twofish" => Some(EncryptionAlgorithmCipher::Twofish),
             "Rijndael128" => Some(EncryptionAlgorithmCipher::Rijndael128),
@@ -56,9 +56,14 @@ impl EncryptionAlgorithm{
             "Arcfour" => Some(EncryptionAlgorithmCipher::Arcfour),
             "Panama" => Some(EncryptionAlgorithmCipher::Panama),
             "Wake" => Some(EncryptionAlgorithmCipher::Wake),
+            _ => None,
         };
-        EncryptionAlgorithm {
-            cipher: algo_cipher,
+        if algo_cipher.is_none() {
+            Err("Unknown cipher".to_string())
+        } else {
+            Ok(EncryptionAlgorithm {
+                cipher: algo_cipher,
+            })
         }
     }
 }
