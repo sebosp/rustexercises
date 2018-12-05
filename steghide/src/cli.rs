@@ -334,21 +334,71 @@ impl StegHideCommandBuilder {
         }
     }
 }
-pub fn parse_optional_args(builder: &mut StegHideCommandBuilder, matches: &clap::ArgMatches) -> Result<(),String> {
-    let passphrase = matches.value_of("passphrase").unwrap();
-    builder.with_passphrase(passphrase.to_string());
-    if matches.is_present("embedfile"){
-        let embedfile = matches.value_of("embedfile").unwrap();
-        builder.with_embedfile(embedfile.to_string())?;
-    }
-    if matches.is_present("extractfile"){
-        let extractfile = matches.value_of("extractfile").unwrap();
-        builder.with_extractfile(extractfile.to_string());
-    }
-    if matches.is_present("coverfile"){
-        let coverfile = matches.value_of("coverfile").unwrap();
-        builder.with_coverfile(coverfile.to_string());
-    }
+pub fn parse_optional_args(builder: &mut StegHideCommandBuilder) -> Result<(),String> {
+    let cli_yaml = load_yaml!("cli.yml");
+    let clap_args = App::from_yaml(cli_yaml).get_matches();
+    for (arg, _) in clap_args.args {
+        match arg.as_ref() {
+            "MODE" => {}, // Mode has been already covered as required argument
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string());
+            },
+            "embedfile" => {
+                builder.with_embedfile(clap_args.value_of("embedfile").unwrap().to_string())?;
+            },
+            "extractfile" => {
+                builder.with_extractfile(clap_args.value_of("extractfile").unwrap().to_string())?;
+            },
+            "coverfile" => {
+                builder.with_coverfile(clap_args.value_of("coverfile").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            },
+            "passphrase" => {
+                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string());
+            },
+        }
+    };
+
+
+
     if matches.is_present("stegofile"){
         let stegofile = matches.value_of("stegofile").unwrap();
         builder.with_stegofile(stegofile.to_string());
@@ -450,10 +500,7 @@ pub fn parse_arguments() -> Result<super::StegHideSetup,String> {
     let command_mode = clap_args.value_of("MODE").unwrap();
     let mut builder = StegHideCommandBuilder::new()
         .with_command(command_mode.to_string());
-    for i in cli_yaml.iter() {
-        println!("i: {}", i);
-    }
-    match parse_optional_args(&mut builder, &clap_args, cli_yaml) {
+    match parse_optional_args(&mut builder) {
         Err(error_string) => {
             error!("Invalid values. Exiting.");
             clap::Error {
