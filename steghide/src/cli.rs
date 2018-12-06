@@ -320,24 +320,24 @@ impl StegHideCommandBuilder {
         Ok(())
     }
     /// `build` finishes the builder for StepHideSetup after validating parameters
-    pub fn build(mut self) -> super::StegHideSetup {
+    pub fn build(mut self) -> Result<super::StegHideSetup, String> {
         match self.validate_build() {
             Ok(()) => trace!("Build params validated"),
             Err(err) => self.cli_exit_clap_invalidvalue(err),
         };
-        super::StegHideSetup{
+        Ok(super::StegHideSetup{
             passphrase: self.passphrase.unwrap(),
             compression_level: self.compression_level.unwrap(),
             command: self.command_mode,
             debug: self.debug_mode,
             // XXX: continue
-        }
+        })
     }
 }
-pub fn parse_optional_args(builder: &mut StegHideCommandBuilder) -> Result<(),String> {
+pub fn parse_optional_args(builder: &mut StegHideCommandBuilder, clap_args: &clap::ArgMatches<'_>) -> Result<(),String> {
     let cli_yaml = load_yaml!("cli.yml");
-    let clap_args = App::from_yaml(cli_yaml).get_matches();
-    for (arg, _) in clap_args.args {
+    let clap_args_copy = App::from_yaml(cli_yaml).get_matches();
+    for (arg, _) in clap_args_copy.args {
         match arg.as_ref() {
             "MODE" => {}, // Mode has been already covered as required argument
             "passphrase" => {
@@ -352,113 +352,59 @@ pub fn parse_optional_args(builder: &mut StegHideCommandBuilder) -> Result<(),St
             "coverfile" => {
                 builder.with_coverfile(clap_args.value_of("coverfile").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "stegofile" => {
+                builder.with_stegofile(clap_args.value_of("stegofile").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "infofile" => {
+                builder.with_infofile(clap_args.value_of("infofile").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "nochecksum" => {
+                builder.with_nochecksum()?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "compress" => {
+                builder.with_compress(clap_args.value_of("compress").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "dontcompress" => {
+                builder.with_dontcompress()?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "dontembedname" => {
+                builder.with_dontembedname()?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "radius" => {
+                builder.with_radius(clap_args.value_of("radius").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "goal" => {
+                builder.with_goal(clap_args.value_of("goal").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "marker" => {
+                builder.with_marker(clap_args.value_of("marker").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "force" => {
+                builder.with_force()?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "printgraph" => {
+                builder.with_debug_printgraph()?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "printgmlgraph" => {
+                builder.with_debug_printgmlgraph(clap_args.value_of("printgmlgraph").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string())?;
+            "printgmlvertex" => {
+                builder.with_debug_printgmlvertex(clap_args.value_of("printgmlvertex").unwrap().to_string())?;
             },
-            "passphrase" => {
-                builder.with_passphrase(clap_args.value_of("passphrase").unwrap().to_string());
+            "debuglevel" => {
+                builder.with_debuglevel(clap_args.value_of("debuglevel").unwrap().to_string());
             },
-        }
-    };
-
-
-
-    if matches.is_present("stegofile"){
-        let stegofile = matches.value_of("stegofile").unwrap();
-        builder.with_stegofile(stegofile.to_string());
-    }
-    if matches.is_present("infofile"){
-        let infofile = matches.value_of("infofile").unwrap();
-        builder.with_infofile(infofile.to_string());
-    }
-    if matches.is_present("nochecksum"){
-        builder.with_nochecksum();
-    }
-    if matches.is_present("compress"){
-        let compress = matches.value_of("compress").unwrap();
-        builder.with_compress(compress.to_string());
-    }
-    if matches.is_present("dontcompress"){
-        builder.with_dontcompress();
-    }
-    if matches.is_present("dontembedname"){
-        builder.with_dontembedname();
-    }
-    if matches.is_present("radius"){
-        let radius = matches.value_of("radius").unwrap();
-        builder.with_radius(radius.to_string());
-    }
-    if matches.is_present("goal"){
-        let goal = matches.value_of("goal").unwrap();
-        builder.with_goal(goal.to_string());
-    }
-    if matches.is_present("marker"){
-        let marker = matches.value_of("marker").unwrap();
-        builder.with_marker(marker.to_string());
-    }
-    if matches.is_present("force"){
-        builder.with_force();
-    }
-    if matches.is_present("printgraph"){
-        builder.with_debug_printgraph();
-    }
-    if matches.is_present("printgmlgraph"){
-        let printgmlgraph = matches.value_of("printgmlgraph").unwrap();
-        builder.with_debug_printgmlgraph(printgmlgraph.to_string());
-    }
-    if matches.is_present("printgmlvertex"){
-        let printgmlvertex = matches.value_of("printgmlvertex").unwrap();
-        builder.with_debug_printgmlvertex(printgmlvertex.to_string());
-    }
-    if matches.is_present("debuglevel"){
-        let debuglevel = matches.value_of("debuglevel").unwrap();
-        builder.with_debuglevel(debuglevel.to_string());
-    }
-    if matches.is_present("printstats"){
-        builder.with_debug_printstats();
-    }
-    if matches.is_present("check"){
-        builder.with_check();
-    }
-    if matches.is_present("encryption"){
-        let encryption = matches.value_of("encryption").unwrap();
-        builder.with_encryption(encryption.to_string());
+            "printstats" => {
+                builder.with_debug_printstats()?;
+            },
+            "check" => {
+                builder.with_check();
+            },
+            "encryption" => {
+                builder.with_encryption(clap_args.value_of("encryption").unwrap().to_string())?;
+            },
+            &_ => {}, // Handle version, help, author, etc
+        };
     }
     Ok(())
 }
@@ -500,7 +446,7 @@ pub fn parse_arguments() -> Result<super::StegHideSetup,String> {
     let command_mode = clap_args.value_of("MODE").unwrap();
     let mut builder = StegHideCommandBuilder::new()
         .with_command(command_mode.to_string());
-    match parse_optional_args(&mut builder) {
+    match parse_optional_args(&mut builder, &clap_args) {
         Err(error_string) => {
             error!("Invalid values. Exiting.");
             clap::Error {
@@ -511,7 +457,7 @@ pub fn parse_arguments() -> Result<super::StegHideSetup,String> {
         },
         Ok(()) => ()
     };
-    Ok(builder.build())
+    builder.build()
 }
 
 /// `run_from_arguments` is the main entrypoint for CLI request
@@ -531,7 +477,7 @@ mod tests {
         let mut builder = StegHideCommandBuilder::new()
             .with_command("embed".to_string());
         builder.with_passphrase("aoeu".to_string());
-        builder.with_coverfile("-".to_string());
+        assert_eq!(builder.with_coverfile("-".to_string()),Ok(()));
         assert_eq!(builder.with_embedfile("-".to_string()), Ok(()));
         assert_eq!(builder.validate_build(), Err("standard input cannot be used for cover data AND data to be embedded".to_string()));
     }
@@ -540,7 +486,7 @@ mod tests {
         let mut builder = StegHideCommandBuilder::new()
             .with_command("embed".to_string());
         builder.with_passphrase("aoeu".to_string());
-        builder.with_coverfile("a".to_string());
+        assert_eq!(builder.with_coverfile("a".to_string()),Ok(()));
         assert_eq!(builder.with_embedfile("-".to_string()),Ok(()));
         assert_eq!(builder.validate_build(), Ok(()));
         assert_eq!(builder.stegofile, builder.coverfile);
@@ -556,7 +502,7 @@ mod tests {
         );
         let mut embed_none = StegHideCommandBuilder::new()
             .with_command("embed".to_string());
-        embed_none.with_coverfile("a".to_string());
+        assert_eq!(embed_none.with_coverfile("a".to_string()),Ok(()));
         assert_eq!(
             embed_none.validate_build(),
             Err("if standard input is used, the passphrase must be specified on the command line".to_string())
