@@ -83,6 +83,7 @@ impl StegHideCommandBuilder {
         }
         Ok(passphrase)
     }
+    // `cli_exit_clap_invalidvalue` Exits the cli executable with a clap invalid value error
     fn cli_exit_clap_invalidvalue(&self, error_string: String) {
         error!("Invalid values. Exiting.");
         clap::Error {
@@ -135,7 +136,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_coverfile(&mut self, coverfile: String) -> Result<(),String> {
         trace!("with_coverfile: {}", coverfile);
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:255
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:255 XXX:TEST
             error!("coverfile provided for non embed operation");
             return Err("the argument 'coverfile' can only be used with the 'embed' command mode".to_string());
         }
@@ -144,7 +145,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_stegofile(&mut self, stegofile: String) -> Result<(),String> {
         trace!("with_stegofile: {}", stegofile);
-        if self.command_mode != Some(super::CommandMode::Embed) && self.command_mode != Some(super::CommandMode::Extract) { // Arguments.cc:286
+        if self.command_mode != Some(super::CommandMode::Embed) && self.command_mode != Some(super::CommandMode::Extract) { // Arguments.cc:286 XXX:TEST
             error!("stegofile provided for non embed or extract operation");
             return Err("the argument 'stegofile' can only be used with the 'embed' or 'extract' command mode".to_string());
         }
@@ -158,7 +159,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_nochecksum(&mut self) -> Result<(),String> {
         trace!("with_nochecksum");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:339
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:339 XXX:TEST
             error!("nochecksum provided for non embed operation");
             return Err("the argument 'nochecksum' can only be used with the 'embed' command mode".to_string());
         }
@@ -167,7 +168,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_compress(&mut self, compress: String) -> Result<(),String> {
         trace!("with_compress: {}", compress);
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:365
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:365 XXX:TEST
             error!("compress provided for non embed operation");
             return Err("the argument 'compress' can only be used with the 'embed' command mode".to_string());
         }
@@ -182,7 +183,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_dontcompress(&mut self) -> Result<(),String> {
         trace!("with_dontcompress");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388 XXX:TEST
             error!("dontembedname provided for non embed operation");
             return Err("the argument 'dontembedname' can only be used with the 'embed' command mode".to_string());
         }
@@ -197,7 +198,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_dontembedname(&mut self) -> Result<(),String> {
         trace!("with_dontembedname");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388 XXX:TEST
             error!("dontcompress provided for non embed operation");
             return Err("the argument 'dontcompress' can only be used with the 'embed' command mode".to_string());
         }
@@ -235,13 +236,11 @@ impl StegHideCommandBuilder {
     }
     pub fn with_debug_printgraph(&mut self) -> Result<(),String> {
         trace!("with_debug_printgraph");
-        self.set_debug(super::DebugMode::PrintGraph);
-        Ok(())
+        self.set_debug(super::DebugMode::PrintGraph)
     }
     pub fn with_debug_printgmlgraph(&mut self, printgmlgraph: String) -> Result<(),String> {
         trace!("with_debug_printgmlgraph: {}", printgmlgraph);
-        self.set_debug(super::DebugMode::PrintGmlGraph);
-        Ok(())
+        self.set_debug(super::DebugMode::PrintGmlGraph)
     }
     pub fn with_debug_printgmlvertex(&mut self, printgmlvertex: String) -> Result<(),String> {
         trace!("with_debug_printgmlvertexstartvertex: {}", printgmlvertex);
@@ -255,18 +254,15 @@ impl StegHideCommandBuilder {
     }
     pub fn with_debuglevel(&mut self, debuglevel: String) -> Result<(),String> {
         trace!("with_debuglevel: {}", debuglevel);
-        self.set_debug(super::DebugMode::DebugLevel(debuglevel.parse::<u64>().unwrap()));
-        Ok(())
+        self.set_debug(super::DebugMode::DebugLevel(debuglevel.parse::<u64>().unwrap()))
     }
     pub fn with_debug_printstats(&mut self) -> Result<(),String> {
         trace!("with_debug_printstatsq");
-        self.set_debug(super::DebugMode::PrintStats);
-        Ok(())
+        self.set_debug(super::DebugMode::PrintStats)
     }
     pub fn with_check(&mut self) -> Result<(),String> {
         trace!("with_check");
-        self.set_debug(super::DebugMode::Check);
-        Ok(())
+        self.set_debug(super::DebugMode::Check)
     }
     pub fn with_encryption(&mut self, encryption: String) -> Result<(),String> {
         trace!("with_encryption: {}", encryption);
@@ -275,7 +271,6 @@ impl StegHideCommandBuilder {
             return Err("the argument 'encryption' can only be used with the 'embed' command mode".to_string());
         }
         return Err("--encryption is not yet supported".to_string());
-        Ok(())
     }
     // Validation related functions:
     /// `policy_set_stegofile_from_cover` sets stegofile to be the cover file
@@ -392,13 +387,13 @@ pub fn parse_optional_args(builder: &mut StegHideCommandBuilder, clap_args: &cla
                 builder.with_debug_printgmlvertex(clap_args.value_of("printgmlvertex").unwrap().to_string())?;
             },
             "debuglevel" => {
-                builder.with_debuglevel(clap_args.value_of("debuglevel").unwrap().to_string());
+                builder.with_debuglevel(clap_args.value_of("debuglevel").unwrap().to_string())?;
             },
             "printstats" => {
                 builder.with_debug_printstats()?;
             },
             "check" => {
-                builder.with_check();
+                builder.with_check()?;
             },
             "encryption" => {
                 builder.with_encryption(clap_args.value_of("encryption").unwrap().to_string())?;
@@ -471,7 +466,16 @@ pub fn run_from_arguments() -> Result<(),String> {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::StegHideCommandBuilder;
+    #[test]
+    fn it_checks_with_command() {
+        let good_builder = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(good_builder.command_mode.is_some(),true);
+        let bad_builder = StegHideCommandBuilder::new()
+            .with_command("NOCOMMAND".to_string());
+        assert_eq!(bad_builder.command_mode.is_none(),true);
+    }
     #[test]
     fn it_validates_invalid_stdin_both_cover_embed() {
         let mut builder = StegHideCommandBuilder::new()
@@ -512,7 +516,7 @@ mod tests {
     fn it_checks_passphrase_argument_needed_on_extract() {
         let mut cover_none = StegHideCommandBuilder::new()
             .with_command("extract".to_string());
-        cover_none.with_extractfile("a".to_string());
+        assert_eq!(cover_none.with_extractfile("a".to_string()),Ok(()));
         assert_eq!(
             cover_none.validate_build(),
             Err("if standard input is used, the passphrase must be specified on the command line".to_string())
@@ -524,4 +528,23 @@ mod tests {
             Err("if standard input is used, the passphrase must be specified on the command line".to_string())
         );
     }
+    #[test]
+    fn it_check_embedfile_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.with_embedfile("test".to_string()),Ok(()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_embedfile("test".to_string()),Err("the argument 'embedfile' can only be used with the 'embed' command mode".to_string()));
+    }
+    #[test]
+    fn it_check_extractfile_needs_extract_mode() {
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_extractfile("test".to_string()),Ok(()));
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.with_extractfile("test".to_string()),Err("the argument 'extractfile' can only be used with the 'extract' command mode".to_string()));
+    }
+    
 }
