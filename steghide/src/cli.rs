@@ -136,7 +136,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_coverfile(&mut self, coverfile: String) -> Result<(),String> {
         trace!("with_coverfile: {}", coverfile);
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:255 XXX:TEST
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:255
             error!("coverfile provided for non embed operation");
             return Err("the argument 'coverfile' can only be used with the 'embed' command mode".to_string());
         }
@@ -145,7 +145,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_stegofile(&mut self, stegofile: String) -> Result<(),String> {
         trace!("with_stegofile: {}", stegofile);
-        if self.command_mode != Some(super::CommandMode::Embed) && self.command_mode != Some(super::CommandMode::Extract) { // Arguments.cc:286 XXX:TEST
+        if self.command_mode != Some(super::CommandMode::Embed) && self.command_mode != Some(super::CommandMode::Extract) { // Arguments.cc:286
             error!("stegofile provided for non embed or extract operation");
             return Err("the argument 'stegofile' can only be used with the 'embed' or 'extract' command mode".to_string());
         }
@@ -159,7 +159,7 @@ impl StegHideCommandBuilder {
     }
     pub fn with_nochecksum(&mut self) -> Result<(),String> {
         trace!("with_nochecksum");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:339 XXX:TEST
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:339
             error!("nochecksum provided for non embed operation");
             return Err("the argument 'nochecksum' can only be used with the 'embed' command mode".to_string());
         }
@@ -168,9 +168,9 @@ impl StegHideCommandBuilder {
     }
     pub fn with_compress(&mut self, compress: String) -> Result<(),String> {
         trace!("with_compress: {}", compress);
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:365 XXX:TEST
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:365
             error!("compress provided for non embed operation");
-            return Err("the argument 'compress' can only be used with the 'embed' command mode".to_string());
+            return Err("the arguments 'compress' and 'dontcompress' can only be used with the 'embed' command mode".to_string());
         }
         if self.compression_level.is_none(){
             debug!("Set compression level to 0 from compress cli argument");
@@ -183,24 +183,13 @@ impl StegHideCommandBuilder {
     }
     pub fn with_dontcompress(&mut self) -> Result<(),String> {
         trace!("with_dontcompress");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388 XXX:TEST
-            error!("dontembedname provided for non embed operation");
-            return Err("the argument 'dontembedname' can only be used with the 'embed' command mode".to_string());
-        }
-        if self.compression_level.is_none(){
-            debug!("Set compression level to 0 from dontcompress cli argument");
-            self.compression_level = Some(0u8);
-        } else {
-            error!("compression has been already set");
-            return Err("the arguments 'compress' and 'dontcompress' are conflictive".to_string());
-        }
-        Ok(())
+        self.with_compress("0".to_string()) // Arguments.cc:388
     }
     pub fn with_dontembedname(&mut self) -> Result<(),String> {
         trace!("with_dontembedname");
-        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:388 XXX:TEST
-            error!("dontcompress provided for non embed operation");
-            return Err("the argument 'dontcompress' can only be used with the 'embed' command mode".to_string());
+        if self.command_mode != Some(super::CommandMode::Embed) { // Arguments.cc:410
+            error!("dontembedname provided for non embed operation");
+            return Err("the argument 'dontembedname' can only be used with the 'embed' command mode".to_string());
         }
         self.embed_name = false;
         Ok(())
@@ -466,6 +455,7 @@ pub fn run_from_arguments() -> Result<(),String> {
 }
 #[cfg(test)]
 mod tests {
+    use cli::DEFAULT_COMPRESSION;
     use super::StegHideCommandBuilder;
     #[test]
     fn it_checks_with_command() {
@@ -533,6 +523,7 @@ mod tests {
         let mut embed_mode = StegHideCommandBuilder::new()
             .with_command("embed".to_string());
         assert_eq!(embed_mode.with_embedfile("test".to_string()),Ok(()));
+        assert_eq!(embed_mode.embedfile,Some("test".to_string()));
         let mut extract_mode = StegHideCommandBuilder::new()
             .with_command("extract".to_string());
         assert_eq!(extract_mode.with_embedfile("test".to_string()),Err("the argument 'embedfile' can only be used with the 'embed' command mode".to_string()));
@@ -542,9 +533,86 @@ mod tests {
         let mut extract_mode = StegHideCommandBuilder::new()
             .with_command("extract".to_string());
         assert_eq!(extract_mode.with_extractfile("test".to_string()),Ok(()));
+        assert_eq!(extract_mode.extractfile,Some("test".to_string()));
         let mut embed_mode = StegHideCommandBuilder::new()
             .with_command("embed".to_string());
         assert_eq!(embed_mode.with_extractfile("test".to_string()),Err("the argument 'extractfile' can only be used with the 'extract' command mode".to_string()));
     }
     
+    #[test]
+    fn it_check_coverfile_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.with_coverfile("test".to_string()),Ok(()));
+        assert_eq!(embed_mode.coverfile,Some("test".to_string()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_coverfile("test".to_string()),Err("the argument 'coverfile' can only be used with the 'embed' command mode".to_string()));
+    }
+    #[test]
+    fn it_check_stegofile_needs_embed_or_extract_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.with_stegofile("test".to_string()),Ok(()));
+        assert_eq!(embed_mode.stegofile, Some("test".to_string()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_stegofile("test".to_string()),Ok(()));
+        assert_eq!(extract_mode.stegofile, Some("test".to_string()));
+        let mut encinfo_mode = StegHideCommandBuilder::new()
+            .with_command("encinfo".to_string());
+        assert_eq!(encinfo_mode.with_stegofile("test".to_string()),Err("the argument 'stegofile' can only be used with the 'embed' or 'extract' command mode".to_string()
+));
+    }
+    #[test]
+    fn it_check_nochecksum_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.nochecksum, false); // XXX: this should be set as a default state
+        assert_eq!(embed_mode.with_nochecksum(),Ok(()));
+        assert_eq!(embed_mode.nochecksum, true);
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_nochecksum(),Err("the argument 'nochecksum' can only be used with the 'embed' command mode".to_string()));
+    }
+    #[test]
+    fn it_check_compress_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        //assert_eq!(embed_mode.compression_level, Some(DEFAULT_COMPRESSION)); XXX: create an object complete enough to validate this
+        assert_eq!(embed_mode.with_compress("1".to_string()),Ok(()));
+        assert_eq!(embed_mode.compression_level, Some(1u8));
+        // Compress can only be provided once, but dontcompress would also target the same field in the struct
+        assert_eq!(embed_mode.with_dontcompress(),Err("the arguments 'compress' and 'dontcompress' are conflictive".to_string()));
+        // Calling the same function twice returns the same error message, but clap forbids us from using --compress twice
+        assert_eq!(embed_mode.with_compress("1".to_string()),Err("the arguments 'compress' and 'dontcompress' are conflictive".to_string()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_compress("1".to_string()),Err("the arguments 'compress' and 'dontcompress' can only be used with the 'embed' command mode".to_string()));
+    }
+    #[test]
+    fn it_check_dontcompress_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        //assert_eq!(embed_mode.compression_level, Some(DEFAULT_COMPRESSION)); XXX: create an object complete enough to validate this
+        assert_eq!(embed_mode.with_dontcompress(),Ok(()));
+        assert_eq!(embed_mode.compression_level, Some(0u8));
+        // Compress can only be provided once, but dontcompress would also target the same field in the struct
+        assert_eq!(embed_mode.with_dontcompress(),Err("the arguments 'compress' and 'dontcompress' are conflictive".to_string()));
+        // Calling the same function twice returns the same error message, but clap forbids us from using --compress twice
+        assert_eq!(embed_mode.with_compress("1".to_string()),Err("the arguments 'compress' and 'dontcompress' are conflictive".to_string()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_dontcompress(),Err("the arguments 'compress' and 'dontcompress' can only be used with the 'embed' command mode".to_string()));
+    }
+    #[test]
+    fn it_check_dontembedname_needs_embed_mode() {
+        let mut embed_mode = StegHideCommandBuilder::new()
+            .with_command("embed".to_string());
+        assert_eq!(embed_mode.with_dontembedname(),Ok(()));
+        let mut extract_mode = StegHideCommandBuilder::new()
+            .with_command("extract".to_string());
+        assert_eq!(extract_mode.with_dontembedname(),Err("the argument 'dontembedname' can only be used with the 'embed' command mode".to_string()));
+    }
+
 }
