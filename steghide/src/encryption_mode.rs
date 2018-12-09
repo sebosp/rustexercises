@@ -1,3 +1,4 @@
+#[derive(PartialEq)]
 pub enum EncryptionMode {
     ECB,
     CBC,
