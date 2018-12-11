@@ -50,3 +50,25 @@ impl StegHideSetup {
         Ok(String::from("Finished running"))
     }
 }
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum OptionalFile{
+    None,
+    Stdin,
+    Some(String),
+}
+impl OptionalFile{
+    fn is_none(&self) -> bool {
+        *self == OptionalFile::None
+    }
+    fn is_some(&self) -> bool {
+        match *self{
+            OptionalFile::None => false,
+            OptionalFile::Stdin => false,
+            _ => true
+        }
+    }
+    fn is_stdin(&self) -> bool {
+        *self == OptionalFile::Stdin
+    }
+}
