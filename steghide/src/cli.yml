@@ -86,6 +86,7 @@ args:
         help: Debug mode for printing gml graph
     - printgmlvertex:
         long: printgmlvertex
+        value_name: RECDEPTH,STARTVERTEX
         help: Debug mode for print gml, takes two comma separated inputs, RecDepth and StartVertex
         takes_value: true
     - debuglevel:
