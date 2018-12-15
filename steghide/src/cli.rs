@@ -2,8 +2,11 @@ use clap::App;
 use super::encryption_algorithm::*;
 use super::encryption_mode::*;
 use super::OptionalFile;
+use super::RequestMode;
+use std::path::Path;
 use stderrlog;
 use std::str::FromStr;
+use std::io::{stdin, stdout, Write};
 
 pub const DEFAULT_COMPRESSION:u8 = 9; // Slowest but smallest
 pub const DEFAULT_VERBOSITY:i8 = 1; // Info statements
@@ -367,7 +370,31 @@ impl StegHideCommandBuilder {
             debug!("Setting verbosity level to default");
             self.verbosity = Some(DEFAULT_VERBOSITY);
         }
+        if self.command_mode == Some(super::CommandMode::Extract) {
+            if let OptionalFile::Some(extract_filename) = &self.extractfile {
+                if Path::new(&extract_filename).exists() && ! self.force {
+                    let user_question = format!("the file \"{}\" does already exist. overwrite ?",extract_filename);
+                    if !self.request_user_bool_response(user_question) {
+                        return Err("Overwrite cancelled".to_string())
+                    }
+                }
+            }
+        }
         Ok(())
+    }
+    pub fn request_user_bool_response(&self, question: String) -> bool {
+        info!("Requesting user input for question '{}'", question);
+        print!("{}", question);
+        stdout().flush().unwrap();
+        let mut buffer = String::new();
+        stdin().read_line(&mut buffer).unwrap();
+        if buffer == "y\n" || buffer == "Y\n" {
+            trace!("Got true from user input");
+            true
+        } else {
+            trace!("Got false from user input");
+            false
+        }
     }
     /// `build` finishes the builder for StepHideRequest after validating parameters
     pub fn build(mut self) -> Result<super::StegHideRequest, String> {
@@ -395,6 +422,7 @@ impl StegHideCommandBuilder {
             debug_mode: self.debug_mode,
             check: self.check,
             file_list: self.file_list,
+            request_mode: RequestMode::CommandLine,
         })
     }
 }
@@ -511,6 +539,15 @@ pub fn parse_arguments() -> Result<super::StegHideRequest,String> {
         Err(error_string) => clap_invalidvalue(error_string.clone()).exit(),
         Ok(()) => debug!("Optional Arguments provided correctly"),
     };
+    if ! builder.request_user_bool_response(format!("Yo, enter Y: ")) {
+        return Err("Got false on 'Y' request_user_bool_response".to_string());
+    }
+    if ! builder.request_user_bool_response(format!("Yo, enter y: ")) {
+        return Err("Got false on 'Y' request_user_bool_response".to_string());
+    }
+    if builder.request_user_bool_response(format!("Yo, enter N: ")) {
+        return Err("Got true on 'N' request_user_bool_response".to_string());
+    }
     builder.build()
 }
 
