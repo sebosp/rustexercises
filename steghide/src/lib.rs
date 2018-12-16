@@ -13,6 +13,7 @@ extern crate rpassword;
 pub mod cli;
 pub mod encryption_algorithm;
 pub mod encryption_mode;
+pub mod embedder;
 
 /// `CommandMode` defines methods of operations of the library
 #[derive(PartialEq)]
@@ -24,8 +25,13 @@ pub enum CommandMode {
     PrintFreqs,
 }
 
-/// `DebugMode` defines different way to show debug information on the operations
 #[derive(PartialEq)]
+pub enum RequestMode {
+    CommandLine,
+    HTTPRequest,
+}
+/// `DebugMode` defines different way to show debug information on the operations
+#[derive(PartialEq,Debug)]
 pub enum DebugMode {
     PrintGraph,
     PrintGmlGraph,
@@ -35,19 +41,40 @@ pub enum DebugMode {
     Check,
 } 
 
-/// `StegHideSetup` contains a request for the library to operate on
+/// `StegHideRequest` contains a request for the library to operate on
 #[derive(PartialEq)]
-pub struct StegHideSetup{
+pub struct StegHideRequest{
     passphrase: String,
     compression_level: u8,
-    command: Option<CommandMode>,
-    debug: Option<DebugMode>
+    command: CommandMode,
+    debug_mode: Option<DebugMode>,
+    embedfile: OptionalFile,
+    extractfile: OptionalFile,
+    coverfile: OptionalFile,
+    stegofile: OptionalFile,
+    marker: String,
+    nochecksum: bool,
+    embed_name: bool,
+    enc_algo: encryption_algorithm::EncryptionAlgorithm,
+    enc_mode: encryption_mode::EncryptionMode,
+    radius: u64,
+    goal: f64,
+    force: bool,
+    verbosity: i8,
+    check: bool,
+    file_list: Vec<String>,
+    request_mode: RequestMode,
 }
 
-/// `StegHideSetup` defines the main operations of the library
-impl StegHideSetup {
+/// `StegHideRequest` defines the main operations of the library
+/// This is taken from Session.cc
+impl StegHideRequest {
     pub fn run(self) -> Result<String, String>{
-        Ok(String::from("Finished running"))
+        if self.command == CommandMode::Embed {
+            embedder::Embedder::new(&self)?.run()
+        } else {
+            Ok("non-embed is not implemented".to_string())
+        }
     }
 }
 
