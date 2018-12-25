@@ -22,8 +22,11 @@ impl BinaryIO {
     }
     pub fn check_force(self, request: StegHideRequest) -> bool {
         if !request.force {
-            if Path::new(self.name).exists(){ 
-                // If Request is CLI, ask the user if overwrite
+            if Path::new(self.name).exists(){
+                // If Request is CLI, the user has already been asked to double-check.
+                if request.request_mode::HTTPRequest {
+                    return false;
+                }
                 // If Request is HTTP, fail the request
             }
         }
