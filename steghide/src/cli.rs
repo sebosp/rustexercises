@@ -539,15 +539,6 @@ pub fn parse_arguments() -> Result<super::StegHideRequest,String> {
         Err(error_string) => clap_invalidvalue(error_string.clone()).exit(),
         Ok(()) => debug!("Optional Arguments provided correctly"),
     };
-    if ! builder.request_user_bool_response(format!("Yo, enter Y: ")) {
-        return Err("Got false on 'Y' request_user_bool_response".to_string());
-    }
-    if ! builder.request_user_bool_response(format!("Yo, enter y: ")) {
-        return Err("Got false on 'Y' request_user_bool_response".to_string());
-    }
-    if builder.request_user_bool_response(format!("Yo, enter N: ")) {
-        return Err("Got true on 'N' request_user_bool_response".to_string());
-    }
     builder.build()
 }
 
