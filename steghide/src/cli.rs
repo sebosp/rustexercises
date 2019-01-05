@@ -325,6 +325,7 @@ impl StegHideCommandBuilder {
         self.stegofile = match &self.coverfile {
             &OptionalFile::Some(ref coverfile) => OptionalFile::Some(coverfile.clone()),
             &OptionalFile::None => OptionalFile::None,
+            &OptionalFile::Stdout => OptionalFile::Stdout, // XXX: Does this make sense?
             &OptionalFile::Stdin => OptionalFile::Stdin,
         };
         self.force = true;
@@ -373,8 +374,8 @@ impl StegHideCommandBuilder {
         if self.command_mode == Some(super::CommandMode::Extract) {
             if let OptionalFile::Some(extract_filename) = &self.extractfile {
                 if Path::new(&extract_filename).exists() && ! self.force {
-                    let user_question = format!("the file \"{}\" does already exist. overwrite ?",extract_filename);
-                    if !self.request_user_bool_response(user_question) {
+                    let user_question = format!("the file \"{}\" already exist. overwrite ?",extract_filename);
+                    if !StegHideCommandBuilder::request_user_bool_response(user_question) {
                         return Err("Overwrite cancelled".to_string())
                     }
                 }
@@ -382,7 +383,9 @@ impl StegHideCommandBuilder {
         }
         Ok(())
     }
-    pub fn request_user_bool_response(&self, question: String) -> bool {
+    // `request_user_bool_response` asks a yes/no question to the user
+    // This function can be used by other modules, XXX: Move to a proper place
+    pub fn request_user_bool_response(question: String) -> bool {
         info!("Requesting user input for question '{}'", question);
         print!("{}", question);
         stdout().flush().unwrap();

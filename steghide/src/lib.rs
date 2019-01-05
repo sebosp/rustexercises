@@ -14,6 +14,7 @@ pub mod cli;
 pub mod encryption_algorithm;
 pub mod encryption_mode;
 pub mod embedder;
+pub mod binary_io;
 
 /// `CommandMode` defines methods of operations of the library
 #[derive(PartialEq)]
@@ -82,6 +83,7 @@ impl StegHideRequest {
 pub enum OptionalFile{
     None,
     Stdin,
+    Stdout,
     Some(String),
 }
 impl OptionalFile{
@@ -92,10 +94,14 @@ impl OptionalFile{
         match *self{
             OptionalFile::None => false,
             OptionalFile::Stdin => false,
+            OptionalFile::Stdout => false,
             _ => true
         }
     }
     fn is_stdin(&self) -> bool {
         *self == OptionalFile::Stdin
+    }
+    fn is_stdout(&self) -> bool {
+        *self == OptionalFile::Stdout
     }
 }
