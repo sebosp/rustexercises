@@ -1,37 +1,43 @@
-use super::OptionalFile;
-use std::fs::File;
-use std::io::Read;
-use std::io::{self, Read};
-use std::io::prelude::*;
+use super::binary_io::BinaryIO;
+/// `Embedder` runs the Embedding operations
 pub struct Embedder{
-    embed_file_contents: Vec<u8>,
+    embed_file_contents: Option<Vec<u8>>,
+    enc_algo: super::encryption_algorithm::EncryptionAlgorithm,
+    enc_mode: super::encryption_mode::EncryptionMode,
+    compression_level: u8,
+    nochecksum: bool,
+    embed_name: bool,
+    embedfile: super::OptionalFile,
 }
 
 impl Embedder{
     pub fn new(request: &super::StegHideRequest) -> Result<Embedder,String> {
-        let mut buffer = Vec::new();
-        match &request.embedfile {
-            OptionalFile::None => {
-                error!("Embedder new() needs a data source to work in");
-                return Err("Missing Embed file".to_string());
-            },
-            OptionalFile::Stdin => {
-                info!("reading secret data from standard input...");
-                io::stdin().read_to_string(&mut buffer).unwrap(); // XXX: Remove unwrap, move to binary_io
-            },
-            OptionalFile::Some(filename) => {
-                info!("reading secret file {}",filename);
-                let mut f = File::open(filename).unwrap(); // XXX: Remove unwrap, move to binary_io
-                f.read_to_end(&mut buffer).unwrap();       // XXX: Remove unwrap, move to binary_io
-            }
-        };
+        let buffer = BinaryIO::new(&request.embedfile, "read")?
+            .read();
         Ok(Embedder{
-            embed_file_contents: buffer
+            embed_file_contents: buffer,
+            enc_algo: request.enc_algo,
+            enc_mode: request.enc_mode,
+            compression_level: request.compression_level,
+            nochecksum: request.nochecksum,
+            embed_name: request.embed_name,
+            embedfile: request.embedfile,
         })
-        // - Create vec of bytes
-        // - Use binary_io read the bytes of the file/stdin into this vec
     }
     pub fn run(self) -> Result<String, String> {
-        Ok(String::from("embedder::new() is not implemented"))
+        // create bitstring to be embedded
+        let mut embed_filename:String; 
+        if self.embed_name {
+            embed_filename = match self.embedfile {
+                super::OptionalFile::Some(fname) => fname.clone(),
+                _ => "".to_string(),
+            };
+        }
+        let embed_data = super::EmbedUtilsBuilder::new(
+                super::EmbedUtils::Mode::Embed,
+                self.request.Passphrase,
+            );
+
+        Ok(String::from("embedder::run() is not implemented"))
     }
 }
