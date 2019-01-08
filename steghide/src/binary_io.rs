@@ -126,6 +126,7 @@ mod tests {
     use super::*;
     #[test]
     fn it_checks_open_mode_types() {
+        // Test Read
         let expected_res = BinaryIO {
             mode: OpenMode::Read,
             file: OptionalFile::Stdin,
@@ -141,13 +142,13 @@ mod tests {
         // Test Write
         let expected_res = BinaryIO {
             mode: OpenMode::Write,
-            file: OptionalFile::Stdin,
+            file: OptionalFile::Stdout,
             data: vec![],
             handle: None,
         };
         let write_stdin_test = super::BinaryIO::new(&OptionalFile::Stdin, "w");
         assert_eq!(write_stdin_test, Err("BinaryIO: OpenMode Write is not possible for Stdin".to_string()));
         let write_stdout_test = super::BinaryIO::new(&OptionalFile::Stdout, "w");
-        assert_eq!(read_stdin_test, Ok(expected_res));
+        assert_eq!(write_stdout_test, Ok(expected_res));
     }
 }
