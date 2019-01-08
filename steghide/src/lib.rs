@@ -7,6 +7,8 @@
 extern crate clap;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate derive_builder;
 extern crate stderrlog;
 extern crate rpassword;
 
@@ -14,6 +16,7 @@ pub mod cli;
 pub mod encryption_algorithm;
 pub mod encryption_mode;
 pub mod embedder;
+pub mod embed_utils;
 pub mod binary_io;
 
 /// `CommandMode` defines methods of operations of the library
