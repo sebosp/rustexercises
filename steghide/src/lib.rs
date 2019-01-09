@@ -108,3 +108,7 @@ impl OptionalFile{
         *self == OptionalFile::Stdout
     }
 }
+
+impl Default for OptionalFile {
+    fn default() -> OptionalFile { OptionalFile::None }
+}
