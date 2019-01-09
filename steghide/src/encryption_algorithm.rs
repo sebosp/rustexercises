@@ -1,4 +1,4 @@
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum EncryptionAlgorithmCipher {
     Twofish,
     Rijndael128,
@@ -23,7 +23,7 @@ enum EncryptionAlgorithmCipher {
     Panama,
     Wake,
 }
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Default)]
 pub struct EncryptionAlgorithm{
     cipher: Option<EncryptionAlgorithmCipher>
 }
