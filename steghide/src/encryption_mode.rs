@@ -1,4 +1,4 @@
-#[derive(PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum EncryptionMode {
     ECB,
     CBC,
@@ -8,4 +8,8 @@ pub enum EncryptionMode {
     NCFB,
     CTR,
     Stream
+}
+
+impl Default for EncryptionMode {
+    fn default() -> EncryptionMode { EncryptionMode::ECB }
 }
