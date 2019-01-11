@@ -3,6 +3,7 @@ use super::embed_utils::*;
 /// `Embedder` runs the Embedding operations
 pub struct Embedder{
     embed_file_contents: Option<Vec<u8>>,
+    coverfile: super::OptionalFile,
     utils: EmbedUtils,
 }
 
@@ -29,12 +30,18 @@ impl Embedder{
             .build()?;
         Ok(Embedder{
             embed_file_contents: buffer,
+            coverfile: request.coverfile,
             utils: utils,
         })
     }
     pub fn run(self) -> Result<String, String> {
         // create bitstring to be embedded
-	    self.utils.get_bit_string() ;
+	    let to_embed = self.utils.get_bit_string();
+        match self.coverfile {
+            super::OptionalFile::Stdin => info!("Reading cover file from standard input..."),
+            _ => info!("Unknown Operation Mode"),
+        };
+
         Ok(String::from("embedder::run() is not implemented"))
     }
 }

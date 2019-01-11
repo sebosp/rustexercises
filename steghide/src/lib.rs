@@ -18,6 +18,7 @@ pub mod encryption_mode;
 pub mod embedder;
 pub mod embed_utils;
 pub mod binary_io;
+pub mod bit_string;
 
 /// `CommandMode` defines methods of operations of the library
 #[derive(PartialEq)]
