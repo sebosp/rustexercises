@@ -19,18 +19,18 @@ impl Embedder{
             };
         }
         let utils = super::embed_utils::EmbedUtilsBuilder::default()
-            .passphrase(request.passphrase.clone())
-            .filename(embed_filename.clone())
-            .enc_algo(request.enc_algo.clone())
-            .enc_mode(request.enc_mode)
-            .compression_level(request.compression_level)
-            .nochecksum(request.nochecksum)
-            .embed_name(request.embed_name)
-            .embedfile(request.embedfile.clone())
+            .with_passphrase(request.passphrase.clone())
+            .with_filename(embed_filename.clone())
+            .with_enc_algo(request.enc_algo.clone())
+            .with_enc_mode(request.enc_mode)
+            .with_compression_level(request.compression_level)
+            .with_nochecksum(request.nochecksum)
+            .with_embed_name(request.embed_name)
+            .with_embedfile(request.embedfile.clone())
             .build()?;
         Ok(Embedder{
             embed_file_contents: buffer,
-            coverfile: request.coverfile,
+            coverfile: request.coverfile.clone(),
             utils: utils,
         })
     }
