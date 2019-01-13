@@ -36,7 +36,7 @@ impl Embedder{
     }
     pub fn run(self) -> Result<String, String> {
         // create bitstring to be embedded
-	    let to_embed = self.utils.get_bit_string();
+	    let _to_embed = self.utils.get_bit_string();
         match self.coverfile {
             super::OptionalFile::Stdin => info!("Reading cover file from standard input..."),
             _ => info!("Unknown Operation Mode"),
