@@ -2,7 +2,7 @@
 //! Allows extraction or embedding of data inside an image,
 //! A passphrase is needed for either extraction or embedding.
 //!
-
+#![allow(dead_code)]
 #[macro_use]
 extern crate clap;
 #[macro_use]
