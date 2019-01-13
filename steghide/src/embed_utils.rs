@@ -92,7 +92,7 @@ impl EmbedUtils {
     pub fn get_bit_string(self) -> super::bit_string::BitString {
         unimplemented!("BitString is not implemented.")
     }
-    pub fn strip_dir(input: String) -> String {
+    pub fn strip_dir(_input: String) -> String {
         unimplemented!("strip_dir is not implemented.")
     }
 }
