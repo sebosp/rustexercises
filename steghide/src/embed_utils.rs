@@ -1,5 +1,4 @@
 
-use super::bit_string::BitString;
 use super::encryption_algorithm::EncryptionAlgorithm;
 
 /// `EmbedUtilsOperation` allows the object to be used in different ways.
