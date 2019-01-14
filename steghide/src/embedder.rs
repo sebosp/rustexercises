@@ -18,7 +18,7 @@ impl Embedder{
                 _ => "".to_string(),
             };
         }
-        let utils = super::embed_utils::EmbedUtilsBuilder::default()
+        let mut utils = super::embed_utils::EmbedUtilsBuilder::default()
             .with_passphrase(request.passphrase.clone())
             .with_filename(embed_filename.clone())
             .with_enc_algo(request.enc_algo.clone())
@@ -28,6 +28,7 @@ impl Embedder{
             .with_embed_name(request.embed_name)
             .with_embedfile(request.embedfile.clone())
             .build()?;
+        utils.init();
         Ok(Embedder{
             embed_file_contents: buffer,
             coverfile: request.coverfile.clone(),
