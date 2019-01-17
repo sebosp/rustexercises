@@ -1,4 +1,5 @@
 
+use super::bit_string::BitStringBuilder;
 
 /// `EmbedUtilsOperation` allows the object to be used in different ways.
 #[derive(Clone, PartialEq)]
@@ -77,8 +78,9 @@ pub struct EmbedUtils{
 impl EmbedUtils {
     // pub fn new() -> EmbedUtils {
     // }
+    /// `init` alters the EmbedUtils with specific setup for Extracting
+    /// We should consider renaming this to init_extract
     pub fn init(&mut self) {
-        self.code_version = 0;
         if self.utils_operation == EmbedUtilsOperation::Extract {
             self.num_bits_needed = self.nbits_magic as u16;
             self.num_bits_requested = self.nbits_magic as u32;
@@ -87,8 +89,14 @@ impl EmbedUtils {
             self.reservoir = super::bit_string::BitString::new();
         }
     }
-    pub fn get_bit_string(self) -> super::bit_string::BitString {
-        unimplemented!("BitString is not implemented.")
+    pub fn get_bit_string(self) -> Result<super::bit_string::BitString,String> {
+        if self.utils_operation != EmbedUtilsOperation::Embed {
+            error!("get_bit_string may only be used on Embed operations");
+            return Err("get_bit_string may only be used on Embed operations".to_string());
+        }
+        // assembling data that can be compressed
+        let compr = super::BitStringBuilder::defaults();
+        Ok(compr)
     }
     pub fn strip_dir(_input: String) -> String {
         unimplemented!("strip_dir is not implemented.")
