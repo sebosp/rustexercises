@@ -1,6 +1,4 @@
 
-use super::bit_string::BitStringBuilder;
-
 /// `EmbedUtilsOperation` allows the object to be used in different ways.
 #[derive(Clone, PartialEq)]
 pub enum EmbedUtilsOperation {
@@ -95,7 +93,7 @@ impl EmbedUtils {
             return Err("get_bit_string may only be used on Embed operations".to_string());
         }
         // assembling data that can be compressed
-        let compr = super::BitStringBuilder::defaults();
+        let compr = super::bit_string::BitStringBuilder::default().build()?;
         Ok(compr)
     }
     pub fn strip_dir(_input: String) -> String {
