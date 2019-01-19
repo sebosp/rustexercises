@@ -9,7 +9,7 @@ pub struct BitString {
     #[builder(default = "2")]
     arity: u8,
     /// the number of Bits per n-ary digit (where n is Arity)
-    arity_nbits: u16,
+    arity_nbits: u16, // setArity requires some more logic
     /// the actual data
     data: Vec<u8>,
 }
@@ -27,7 +27,13 @@ impl BitString{
         if self.length % 8 == 0 { 
                 self.data.push(0);
         }
+        self.data[BitString::byte_pos(self.length)] |= (bit as u8) << BitString::bit_pos(self.length);
+        self.length += 1;
     }
-    pub fn bit_pos(n) (n % 8)
-#define BYTEPOS(n) (n / 8)
+    pub fn bit_pos(n: u32) -> u8 {
+        (n % 8) as u8
+    }
+    pub fn byte_pos(n: u32) -> usize {
+        (n / 8) as usize
+    }
 }
