@@ -37,3 +37,30 @@ impl BitString{
         (n / 8) as usize
     }
 }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_shifts_like_cpp_version() {
+        let mut bit: bool = true;
+        let mut length = 0;
+        let mut test: u8 = 1;
+        for _ in 0..32 {
+            dbg!(test);
+            test |= (bit as u8) << super::BitString::bit_pos(length);
+            length+=1;
+            bit=!bit;
+        }
+        // From cpp_equivs/bit_string_shifts.cpp
+        // (test=b:00000001,d:01) |= ((v=1) << (BITPOS(Length=0)=0) = rhs=b:00000001,d:01) = (test=b:00000001,d:01)
+        // (test=b:00000001,d:01) |= ((v=0) << (BITPOS(Length=1)=1) = rhs=b:00000000,d:00) = (test=b:00000001,d:01)
+        // (test=b:00000001,d:01) |= ((v=1) << (BITPOS(Length=2)=2) = rhs=b:00000100,d:04) = (test=b:00000101,d:05)
+        // (test=b:00000101,d:05) |= ((v=0) << (BITPOS(Length=3)=3) = rhs=b:00000000,d:00) = (test=b:00000101,d:05)
+        // (test=b:00000101,d:05) |= ((v=1) << (BITPOS(Length=4)=4) = rhs=b:00010000,d:16) = (test=b:00010101,d:21)
+        // (test=b:00010101,d:21) |= ((v=0) << (BITPOS(Length=5)=5) = rhs=b:00000000,d:00) = (test=b:00010101,d:21)
+        // (test=b:00010101,d:21) |= ((v=1) << (BITPOS(Length=6)=6) = rhs=b:01000000,d:64) = (test=b:01010101,d:85)
+        // (test=b:01010101,d:85) |= ((v=0) << (BITPOS(Length=7)=7) = rhs=b:00000000,d:00) = (test=b:01010101,d:85)
+        // (test=b:01010101,d:85) |= ((v=1) << (BITPOS(Length=8)=0) = rhs=b:00000001,d:01) = (test=b:01010101,d:85)
+        // (test=b:01010101,d:85) |= ((v=0) << (BITPOS(Length=9)=1) = rhs=b:00000000,d:00) = (test=b:01010101,d:85)
+        assert_eq!(test,85);
+    }
+}
