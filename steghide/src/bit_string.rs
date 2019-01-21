@@ -6,8 +6,9 @@ pub struct BitString {
     length: u32,
     /// the arity that will be used for getLength/getNAry/appendNAry
     /// Arity is also seen as unsigned char which seems to be u8
+    #[builder(setter(skip))]
     #[builder(default = "2")]
-    arity: u8,
+    arity: u8, // Do setter skip and default work together?
     /// the number of Bits per n-ary digit (where n is Arity)
     arity_nbits: u16, // setArity requires some more logic
     /// the actual data
@@ -15,7 +16,7 @@ pub struct BitString {
 }
 impl BitString{
     pub fn new() -> BitString {
-        // XXX: Could is overloaded many times
+        // XXX: New is overloaded many times
         BitString {
             length: 0,
             arity: 0,
@@ -36,6 +37,30 @@ impl BitString{
     pub fn byte_pos(n: u32) -> usize {
         (n / 8) as usize
     }
+}
+impl BitStringBuilder{
+    pub fn with_arity(&mut self, value: u8) -> &mut Self {
+        let mut new = self;
+        let tmp = value;
+        let arity_nbits = 0u16;
+        new.arity = Some(value);
+        while(tmp > 1){
+            if tmp % 2 != 0 {
+                tmp /= 2;
+                arity_nbits += 1;
+            }
+        }
+        self.arity_nbits = Some(arity_nbits);
+        new
+    }
+    /*
+
+	while (tmp > 1) {
+		myassert (tmp % 2 == 0) ; // only implemented for arity = 2^i
+		tmp /= 2 ;
+		ArityNBits++ ;
+	}
+    */
 }
 #[cfg(test)]
 mod tests {
