@@ -1,18 +1,20 @@
-#[derive(Default, Builder, Clone)]
-#[builder(setter(prefix = "with"))]
+#[derive(Clone)]
 pub struct BitString {
     /// the number of bits in Data
-    #[builder(default = "0")]
     length: u32,
     /// the arity that will be used for getLength/getNAry/appendNAry
     /// Arity is also seen as unsigned char which seems to be u8
-    #[builder(setter(skip))]
-    #[builder(default = "2")]
     arity: u8, // Do setter skip and default work together?
     /// the number of Bits per n-ary digit (where n is Arity)
     arity_nbits: u16, // setArity requires some more logic
     /// the actual data
     data: Vec<u8>,
+}
+pub struct BitStringBuilder {
+    length: Option<u32>,
+    arity: Option<u8>,
+    arity_nbits: Option<u16>,
+    data: Option<Vec<u8>>,
 }
 impl BitString{
     pub fn new() -> BitString {
@@ -38,30 +40,90 @@ impl BitString{
         (n / 8) as usize
     }
 }
-impl BitStringBuilder{
+
+impl Default for BitStringBuilder {
+    fn default() -> Self {
+        BitStringBuilder{
+            length: Some(0),
+            arity: Some(2),
+            arity_nbits: None,
+            data: None,
+        }
+    }
+}
+impl BitStringBuilder {
+    #[doc = " the number of bits in Data"]
+    #[allow(unused_mut)]
+    pub fn with_length(&mut self, value: u32) -> &mut Self {
+        let mut new = self;
+        new.length = Some(value);
+        new
+    }
+    #[doc =
+            " the arity that will be used for getLength/getNAry/appendNAry"]
+    #[doc = " Arity is also seen as unsigned char which seems to be u8"]
     pub fn with_arity(&mut self, value: u8) -> &mut Self {
         let mut new = self;
+        new.arity = Some(value);
         let tmp = value;
         let arity_nbits = 0u16;
-        new.arity = Some(value);
-        while(tmp > 1){
-            if tmp % 2 != 0 {
-                tmp /= 2;
-                arity_nbits += 1;
+        while tmp > 1 {
+            if tmp % 2 == 0 {
+                error!("Only implemented for arity = 2^i");
+                std::process::exit(1);
             }
+            tmp /= 2;
+            arity_nbits += 1;
         }
         self.arity_nbits = Some(arity_nbits);
         new
     }
-    /*
-
-	while (tmp > 1) {
-		myassert (tmp % 2 == 0) ; // only implemented for arity = 2^i
-		tmp /= 2 ;
-		ArityNBits++ ;
-	}
-    */
+    #[doc = " the number of Bits per n-ary digit (where n is Arity)"]
+    #[allow(unused_mut)]
+    pub fn with_arity_nbits(&mut self, value: u16) -> &mut Self {
+        let mut new = self;
+        new.arity_nbits = Some(value);
+        new
+    }
+    #[doc = " the actual data"]
+    #[allow(unused_mut)]
+    pub fn with_data(&mut self, value: Vec<u8>) -> &mut Self {
+        let mut new = self;
+        new.data = Some(value);
+        new
+    }
+    #[doc =
+            "Builds a new `BitString`.\n\n# Errors\n\nIf a required field has not been initialized.\n"]
+    pub fn build(&self) -> Result<BitString, String> {
+        Ok(BitString{
+            length:
+                match self.length {
+                    Some(ref value) =>
+                    Clone::clone(value),
+                    None => { 0 }
+                },
+            arity:
+                match self.arity {
+                    Some(ref value) => Clone::clone(value),
+                    None => { 2 }
+                },
+            arity_nbits:
+                match self.arity_nbits {
+                    Some(ref value) => Clone::clone(value),
+                    None =>
+                    return Err(String::from("`arity_nbits` must be initialized")),
+                },
+            data:
+                match self.data {
+                    Some(ref value) => Clone::clone(value),
+                    None =>
+                    return Err(String::from("`data` must be initialized")),
+                },
+        }
+            )
+    }
 }
+
 #[cfg(test)]
 mod tests {
     #[test]
