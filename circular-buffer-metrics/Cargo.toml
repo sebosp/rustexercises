@@ -1,0 +1,12 @@
+[package]
+name = "circular-buffer-metrics"
+version = "0.1.0"
+authors = ["Seb Ospina <kraige@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+tokio-core = "0.1.17"
+num-traits = "0.2"
+hyper = "0.12"
+futures = "0.1.26"
+serde_json = "1"
