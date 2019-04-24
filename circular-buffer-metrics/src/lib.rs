@@ -1,4 +1,10 @@
 //! Exports the TimeSeries class
+//! The TimeSeries is a circular buffer that contains an entry per epoch
+//! at different granularities. It is maintained as a Vec<(u64, T)> where
+//! T is a metric. Since metrics will overwrite the contents of the array
+//! partially, the start of the metrics and the end of the metrics are
+//! maintained as two separate indexes. This allows the vector to shrink
+//! and rotate without relocation of memory or shifting of the vector.
 
 // TODO:
 // - Move to the config.yaml
@@ -7,7 +13,6 @@
 // -- When activated on toggle it could blur a portion of the screen
 // -- derive builder
 // -- Use prometheus queries instead of our own aggregation/etc.
-// -- The vectors should be circular to avoid constantly rotating
 
 extern crate futures;
 extern crate hyper;
@@ -100,7 +105,13 @@ where
         }
     }
 }
-/// `TimeSeries` contains a vector of tuple (epoch, value)
+/// `TimeSeries` contains a vector of tuple (epoch, Option<value>)
+/// The vector behaves as a circular buffer to avoid shifting values.
+/// The circular buffer may be invalidated partially, for example when too much
+/// time has passed without metrics, the vecotr is allowed to shrink without
+/// memory rellocation, this is achieved by using two indexes for the first
+/// and last item.
+#[derive(Clone)]
 pub struct TimeSeries<T>
 where
     T: Num + Clone + Copy,
@@ -128,6 +139,13 @@ where
 
     /// The last item in the circular buffer
     pub last_idx: usize,
+}
+pub struct IterTimeSeries<'a, T: 'a>
+where
+    T: Num + Clone + Copy,
+{
+    inner: &'a TimeSeries<T>,
+    pos: usize,
 }
 
 pub struct TimeSeriesChart<T>
@@ -267,65 +285,9 @@ where
             MissingValuesPolicy::Min => self.metric_stats.min,
             MissingValuesPolicy::Max => self.metric_stats.max,
             MissingValuesPolicy::Last => self.get_last_filled(),
-            MissingValuesPolicy::First => {
-                let mut first_val = T::zero(); // Default value
-                for idx in 0..(self.metrics.len() - 1) {
-                    if let Some(val) = self.metrics[idx].1 {
-                        first_val = val;
-                        break;
-                    }
-                }
-                first_val
-                // TODO: iterate from back to front to get the first filled stat:
-                // self.metrics[0].1,
-            }
+            MissingValuesPolicy::First => self.get_first_filled(),
             MissingValuesPolicy::Avg => self.metric_stats.avg,
             MissingValuesPolicy::Fixed(val) => val,
-        }
-    }
-
-    /// `rotate_metrics` when we run out of our vector
-    /// capacity or when the terminal has been inactive enough
-    /// that in needs the vector to be rotated.
-    pub fn rotate_metrics(&mut self, epoch: u64)
-    where
-        T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
-    {
-        let metrics_length = self.metrics.len();
-        if metrics_length == 0 {
-            return;
-        }
-        let max_metrics_epoch = self.metrics[metrics_length - 1].0;
-        if max_metrics_epoch == epoch {
-            return;
-        }
-        let inactive_time = (epoch - self.metrics[metrics_length - 1].0) as usize;
-        if inactive_time > self.metrics_capacity {
-            // The whole vector is outdated, fill the vector as empty
-            for idx in 0..self.metrics_capacity {
-                let fill_epoch = epoch - self.metrics_capacity as u64 + idx as u64 + 1;
-                if idx < metrics_length {
-                    self.metrics[idx] = (fill_epoch, None);
-                } else {
-                    self.metrics.push((fill_epoch, None));
-                }
-            }
-        } else if inactive_time + metrics_length > self.metrics_capacity {
-            let shift_left_times = inactive_time + metrics_length - self.metrics_capacity;
-            for idx in 0..metrics_length - shift_left_times {
-                self.metrics[idx] = self.metrics[idx + shift_left_times]
-            }
-            let mut fill_epoch = self.metrics[metrics_length - shift_left_times].0;
-            for idx in metrics_length - shift_left_times..metrics_length {
-                fill_epoch += 1;
-                self.metrics[idx] = (fill_epoch, None);
-            }
-        } else if inactive_time > 1 {
-            // Fill the inactive time as None
-            for idx in 0..inactive_time - 1 {
-                self.metrics
-                    .push((max_metrics_epoch + 1u64 + idx as u64, None));
-            }
         }
     }
 
@@ -348,16 +310,14 @@ where
         if self.metrics.len() < self.metrics_capacity {
             self.metrics.push(input);
         } else {
-            // capacity = 4
-            // [(10, 0)],[(11, 1)][(12, 2)][(13, 3)]
-            // ^ fist                                ^last
-            // -> circular_push(14,4)
-            // [(14, 4)],[(11, 1)][(12, 2)][(13, 3)]
-            // ^ last    ^ first
-            self.metrics[self.first_idx] = input;
-            self.first_idx = (self.first_idx + 1) % self.metrics_capacity;
-            if self.last_idx == self.metrics_capacity {
-                self.last_idx = self.last_idx + 2;
+            // The vector might have been invalidated because data was outdated.
+            // The first and last index shorten the vector but leave old data
+            // still
+            if self.first_idx == 0 && self.last_idx < self.metrics_capacity {
+                self.metrics[self.last_idx] = input;
+            } else {
+                self.metrics[self.first_idx] = input;
+                self.first_idx = (self.first_idx + 1) % self.metrics_capacity;
             }
         }
         self.last_idx = (self.last_idx + 1) % (self.metrics_capacity + 1);
@@ -379,16 +339,19 @@ where
             if inactive_time > self.metrics_capacity {
                 // The whole vector should be discarded
                 self.first_idx = 0;
-                self.last_idx = 0;
+                self.last_idx = 1;
+                self.metrics[0] = (input.0, Some(input.1));
             } else {
                 // Fill missing entries with None
                 let max_epoch = self.metrics[last_idx].0;
                 for fill_epoch in (max_epoch + 1)..input.0 {
                     self.circular_push((fill_epoch, None));
                 }
+                self.circular_push((input.0, Some(input.1)));
             }
+        } else {
+            self.circular_push((input.0, Some(input.1)));
         }
-        self.circular_push((input.0, Some(input.1)));
     }
 
     /// `get_last_filled` Returns the last filled entry in the circular buffer
@@ -399,7 +362,7 @@ where
         let mut idx = if self.last_idx == self.metrics_capacity {
             0
         } else {
-            self.last_idx
+            self.last_idx - 1
         };
         loop {
             if let Some(res) = self.metrics[idx].1 {
@@ -417,26 +380,24 @@ where
         T::zero()
     }
 
-    /// `get_first_filled` Returns the last filled entry in the circular buffer
+    /// `get_first_filled` Returns the first filled entry in the circular buffer
     pub fn get_first_filled(&self) -> T
     where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
+        T: Num + Clone + Copy,
     {
-        let upper_bound = if self.first_idx > self.last_idx {
-            self.metrics.len() - 1
+        let mut idx = self.first_idx;
+        let last_idx = if self.last_idx == self.metrics_capacity {
+            0
         } else {
-            self.last_idx - 1
+            self.last_idx
         };
-        for idx in self.first_idx..upper_bound {
+        loop {
             if let Some(res) = self.metrics[idx].1 {
                 return res;
             }
-        }
-        if self.first_idx > self.last_idx {
-            for idx in 0..self.first_idx {
-                if let Some(res) = self.metrics[idx].1 {
-                    return res;
-                }
+            idx = (idx + 1) % self.metrics.len();
+            if idx == last_idx {
+                break;
             }
         }
         T::zero()
@@ -460,6 +421,9 @@ where
     where
         T: Clone + Copy,
     {
+        if self.metrics.is_empty() {
+            return vec![];
+        }
         let mut res: Vec<(u64, Option<T>)> = Vec::with_capacity(self.metrics_capacity);
         let mut idx = self.first_idx;
         let last_idx = if self.last_idx == self.metrics_capacity {
@@ -477,40 +441,7 @@ where
         res
     }
 
-    /// `update` Adds an input metric on a specif epoch to the metrics vector
-    pub fn update(&mut self, input: (u64, T))
-    where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
-        // Rotation might be needed to discard old values or clear inactivity
-        self.rotate_metrics(input.0);
-        let metrics_length = self.metrics.len();
-        if metrics_length == 0 {
-            // The vec is empty, just push the input.
-            self.metrics.push((input.0, Some(input.1)));
-        } else if input.0 == self.metrics[metrics_length - 1].0 {
-            // The last metric epoch and the new metric are the same
-            // Figure out wether to overwrite or increment metric
-            let last_metric_value = self.metrics[metrics_length - 1].1;
-            if let Some(metric) = last_metric_value {
-                let resolved_metric = self.resolve_metric_collision(metric, input.1);
-                self.metrics[metrics_length - 1] = (input.0, Some(resolved_metric));
-            } else {
-                // Technically this should never happen, but maybe loading from
-                // Prometheus could lead into empty metrics at the front
-                self.metrics[metrics_length - 1] = (input.0, Some(input.1));
-            }
-        } else if metrics_length < self.metrics_capacity {
-            // There is enough space to push to the vector.
-            self.metrics.push((input.0, Some(input.1)));
-        } else {
-            // There is not enough space to push to the vector.
-            self.metrics[metrics_length - 1] = (input.0, Some(input.1));
-        }
-        // TODO: self.update_activity_opengl_vecs(size);
-    }
-
-    fn update_current_epoch(&mut self, input: T)
+    fn push_current_epoch(&mut self, input: T)
     where
         T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
     {
@@ -518,7 +449,49 @@ where
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        self.update((now, input));
+        self.push((now, input));
+    }
+    // `max` returns the max value in the TimeSeries
+    fn max(&self) -> T
+    where
+        T: Num + PartialOrd,
+    {
+        let mut max = T::zero();
+        let activity_time_length = self.metrics.len();
+        for idx in 0..activity_time_length {
+            if let Some(val) = self.metrics[idx].1 {
+                if val > max {
+                    max = val;
+                }
+            }
+        }
+        max
+    }
+
+    // `iter` Returns an Iterator from the current start.
+    fn iter<'a>(&'a self) -> IterTimeSeries<'a, T>
+    where
+        T: Copy + Clone,
+    {
+        IterTimeSeries {
+            inner: self,
+            pos: self.first_idx,
+        }
+    }
+}
+
+impl<'a, T> Iterator for IterTimeSeries<'a, T>
+where
+    T: Num + Clone + Copy,
+{
+    type Item = &'a (u64, Option<T>);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.inner.metrics.is_empty() || self.pos == self.inner.last_idx {
+            return None;
+        }
+        let curr_pos = self.pos;
+        self.pos = (self.pos + 1) % (self.inner.metrics.len() + 1);
+        Some(&self.inner.metrics[curr_pos])
     }
 }
 #[cfg(test)]
@@ -547,14 +520,14 @@ mod tests {
             vec![(14, Some(4)), (11, Some(1)), (12, None), (13, Some(3))]
         );
         assert_eq!(test.first_idx, 1);
-        assert_eq!(test.last_idx, 1);
+        assert_eq!(test.last_idx, 0);
         test.circular_push((15, Some(5)));
         assert_eq!(
             test.metrics,
             vec![(14, Some(4)), (15, Some(5)), (12, None), (13, Some(3))]
         );
         assert_eq!(test.first_idx, 2);
-        assert_eq!(test.last_idx, 2);
+        assert_eq!(test.last_idx, 1);
     }
     #[test]
     fn it_gets_last_filled_value() {
@@ -621,106 +594,31 @@ mod tests {
             test.metrics,
             vec![(18, Some(8)), (11, None), (12, None), (13, Some(3))]
         );
-        assert_eq!(test.first_idx, 1);
-        assert_eq!(test.last_idx, 2);
+        assert_eq!(test.first_idx, 0);
+        assert_eq!(test.last_idx, 1);
         assert_eq!(test.as_vec(), vec![(18, Some(8))]);
-    }
-    #[test]
-    fn it_rotates() {
-        let mut test = TimeSeries::default().with_capacity(5);
-        test.update((0, 0));
-        assert_eq!(test.metrics, vec![(0, Some(0))]);
-        test.rotate_metrics(0);
-        assert_eq!(test.metrics, vec![(0, Some(0))]);
-        // No need to rotate, the next push should do it
-        test.rotate_metrics(1);
-        assert_eq!(test.metrics, vec![(0, Some(0))]);
-        test.update((1, 1));
-        assert_eq!(test.metrics, vec![(0, Some(0)), (1, Some(1))]);
-        test.rotate_metrics(3);
-        assert_eq!(test.metrics, vec![(0, Some(0)), (1, Some(1)), (2, None)]);
-        test.rotate_metrics(10);
+        test.push((20, 0));
         assert_eq!(
             test.metrics,
-            vec![(6, None), (7, None), (8, None), (9, None), (10, None)]
+            vec![(18, Some(8)), (19, None), (20, Some(0)), (13, Some(3))]
         );
-        test.update((10, 10));
+        assert_eq!(test.first_idx, 0);
+        assert_eq!(test.last_idx, 3);
         assert_eq!(
-            test.metrics,
-            vec![(6, None), (7, None), (8, None), (9, None), (10, Some(10))]
+            test.as_vec(),
+            vec![(18, Some(8)), (19, None), (20, Some(0))]
         );
-        let mut test = TimeSeries::default().with_capacity(5);
-        test.update((100, 0));
-        test.update((100, 1));
-        test.update((101, 1));
-        test.update((103, 3));
+        test.push((50, 5));
         assert_eq!(
             test.metrics,
-            vec![(100, Some(1)), (101, Some(1)), (102, None), (103, Some(3))]
+            // Many outdated entries
+            vec![(50, Some(5)), (19, None), (20, Some(0)), (13, Some(3))]
         );
-        test.rotate_metrics(105);
+        assert_eq!(test.as_vec(), vec![(50, Some(5))]);
+        test.push((53, 3));
         assert_eq!(
             test.metrics,
-            vec![(101, Some(1)), (102, None), (103, Some(3)), (104, None),]
-        );
-        test.update((105, 5));
-        assert_eq!(
-            test.metrics,
-            vec![
-                (101, Some(1)),
-                (102, None),
-                (103, Some(3)),
-                (104, None),
-                (105, Some(5))
-            ]
-        );
-    }
-    #[test]
-    fn it_updates() {
-        // The default includes an Increment policy
-        let mut test = TimeSeries::default().with_capacity(5);
-        // Initialize to 0,0
-        test.update((1000, 0));
-        assert_eq!(test.metrics, vec![(1000, Some(0))]);
-        // Overwrite current entry
-        test.update((1000, 1));
-        assert_eq!(test.metrics, vec![(1000, Some(1))]);
-        // Increment current entry
-        test.update((1000, 1));
-        assert_eq!(test.metrics, vec![(1000, Some(2))]);
-        test.update((1001, 1));
-        assert_eq!(test.metrics, vec![(1000, Some(2)), (1001, Some(1))]);
-        test.update((1003, 3));
-        assert_eq!(
-            test.metrics,
-            vec![
-                (1000, Some(2)),
-                (1001, Some(1)),
-                (1002, None),
-                (1003, Some(3))
-            ]
-        );
-        test.update((1005, 5));
-        assert_eq!(
-            test.metrics,
-            vec![
-                (1001, Some(1)),
-                (1002, None),
-                (1003, Some(3)),
-                (1004, None),
-                (1005, Some(5))
-            ]
-        );
-        test.update((1025, 25));
-        assert_eq!(
-            test.metrics,
-            vec![
-                (1021, None),
-                (1022, None),
-                (1023, None),
-                (1024, None),
-                (1025, Some(25))
-            ]
+            vec![(50, Some(5)), (51, None), (52, None), (53, Some(3))]
         );
     }
     #[test]
@@ -767,6 +665,64 @@ mod tests {
         assert_eq!(test_avg.get_missing_values_fill(), 5);
         // TODO: add Fixed value test
     }
+    #[test]
+    fn it_iterates_trait() {
+        // Iterator Trait
+        // Test an empty TimeSeries vec
+        let test0: TimeSeries<i8> = TimeSeries::default().with_capacity(4);
+        let mut iter_test0 = test0.iter();
+        assert_eq!(iter_test0.pos, 0);
+        assert!(iter_test0.next().is_none());
+        assert!(iter_test0.next().is_none());
+        assert_eq!(iter_test0.pos, 0);
+        // Simple test with one item
+        let mut test1 = TimeSeries::default().with_capacity(4);
+        test1.circular_push((10, Some(0)));
+        let mut iter_test1 = test1.iter();
+        assert_eq!(iter_test1.next(), Some(&(10, Some(0))));
+        assert_eq!(iter_test1.pos, 1);
+        assert!(iter_test1.next().is_none());
+        assert!(iter_test1.next().is_none());
+        assert_eq!(iter_test1.pos, 1);
+        // Simple test with 3 items, rotated to start first item and 2nd
+        // position and last item at 3rd position
+        let mut test2 = TimeSeries::default().with_capacity(4);
+        test2.circular_push((10, Some(0)));
+        test2.circular_push((11, Some(1)));
+        test2.circular_push((12, Some(2)));
+        test2.circular_push((13, Some(3)));
+        test2.first_idx = 1;
+        test2.last_idx = 3;
+        assert_eq!(
+            test2.metrics,
+            vec![(10, Some(0)), (11, Some(1)), (12, Some(2)), (13, Some(3))]
+        );
+        let mut iter_test2 = test2.iter();
+        assert_eq!(iter_test2.pos, 1);
+        assert_eq!(iter_test2.next(), Some(&(11, Some(1))));
+        assert_eq!(iter_test2.next(), Some(&(12, Some(2))));
+        assert_eq!(iter_test2.pos, 3);
+        // A vec that is completely full
+        let mut test3 = TimeSeries::default().with_capacity(4);
+        test3.circular_push((10, Some(0)));
+        test3.circular_push((11, Some(1)));
+        test3.circular_push((12, Some(2)));
+        test3.circular_push((13, Some(3)));
+        {
+            let mut iter_test3 = test3.iter();
+            assert_eq!(iter_test3.next(), Some(&(10, Some(0))));
+            assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
+            assert_eq!(iter_test3.next(), Some(&(12, Some(2))));
+            assert_eq!(iter_test3.next(), Some(&(13, Some(3))));
+            assert!(iter_test3.next().is_none());
+            assert!(iter_test3.next().is_none());
+            assert_eq!(iter_test2.pos, 3);
+        }
+        // After changing the data the idx is recreatehd at 11 as expected
+        test3.circular_push((14, Some(4)));
+        let mut iter_test3 = test3.iter();
+        assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
+    }
     // let size = SizeInfo{
     // width: 100f32,
     // height: 100f32,
@@ -780,42 +736,8 @@ mod tests {
 // `draw` sends the time series representation of the TimeSeries to OpenGL
 // context, this shouldn't be mut
 // fn draw(&self);
-// `max` returns the max value in the TimeSeries
-// fn max(&self, input: &Vec<(u64, Self::MetricType)>) -> Self::MetricType
-// where Self::MetricType: Num + PartialOrd
-// {
-// let mut max_activity_value = Self::MetricType::zero();
-// let activity_time_length = input.len();
-// for idx in 0..activity_time_length {
-// if input[idx].1 > max_activity_value {
-// max_activity_value = input[idx].1;
-// }
-// }
-// max_activity_value
-// }
 // fn update_opengl_vecs(size: SizeInfo) -> Vec<f32>{
 // unimplemented!("XXX");
-// }
-// fn update(&mut self, &mut metrics: Vec<(u64, Self::MetricType)>, input: (u64, Self::MetricType),
-// collision_policy: ValueCollisionPolicy) where Self::MetricType: Num + Clone + Copy + PartialOrd +
-// ToPrimitive + Bounded + FromPrimitive {
-// let mut activity_time_length = metrics.len();
-// if activity_time_length == 0 {
-// metrics.push(input);
-// TODO: update_opengl_vecs(size);
-// }
-// let last_activity_time = metrics[activity_time_length - 1].0;
-// if input.0 == last_activity_time {
-// The Vector is populated and has one active item at least which
-// we can work on, no need to rotate or do anything special
-// match collision_policy {
-// ValueCollisionPolicy::Increment => metrics[activity_time_length - 1] = (input.0,
-// metrics[activity_time_length - 1].1 + input.1), ValueCollisionPolicy::Overwrite =>
-// metrics[activity_time_length - 1] = input, ValueCollisionPolicy::Decrement =>
-// metrics[activity_time_length - 1] = (input.0, metrics[activity_time_length - 1].1 - input.1),
-// _ => metrics[activity_time_length - 1] = input,
-// };
-// return;
 // }
 // Every time unit (currently second) is stored as an item in the array
 // Rotation may be needed due to inactivity or the array being filled
