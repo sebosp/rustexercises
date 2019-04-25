@@ -249,8 +249,8 @@ where
         let mut min_activity_value = T::max_value();
         let mut sum_activity_values = T::zero();
         let mut filled_metrics = 0usize;
-        for idx in 0..self.metrics.len() {
-            if let Some(metric) = self.metrics[idx].1 {
+        for entry in self.iter() {
+            if let Some(metric) = entry.1 {
                 if metric > max_activity_value {
                     max_activity_value = metric;
                 }
@@ -385,19 +385,9 @@ where
     where
         T: Num + Clone + Copy,
     {
-        let mut idx = self.first_idx;
-        let last_idx = if self.last_idx == self.metrics_capacity {
-            0
-        } else {
-            self.last_idx
-        };
-        loop {
-            if let Some(res) = self.metrics[idx].1 {
-                return res;
-            }
-            idx = (idx + 1) % self.metrics.len();
-            if idx == last_idx {
-                break;
+        for entry in self.iter() {
+            if let Some(metric) = entry.1 {
+                return metric;
             }
         }
         T::zero()
@@ -425,18 +415,8 @@ where
             return vec![];
         }
         let mut res: Vec<(u64, Option<T>)> = Vec::with_capacity(self.metrics_capacity);
-        let mut idx = self.first_idx;
-        let last_idx = if self.last_idx == self.metrics_capacity {
-            0
-        } else {
-            self.last_idx
-        };
-        loop {
-            res.push(self.metrics[idx]);
-            idx = (idx + 1) % self.metrics.len();
-            if idx == last_idx {
-                break;
-            }
+        for entry in self.iter() {
+            res.push(entry.clone());
         }
         res
     }
@@ -450,22 +430,6 @@ where
             .unwrap()
             .as_secs();
         self.push((now, input));
-    }
-    // `max` returns the max value in the TimeSeries
-    fn max(&self) -> T
-    where
-        T: Num + PartialOrd,
-    {
-        let mut max = T::zero();
-        let activity_time_length = self.metrics.len();
-        for idx in 0..activity_time_length {
-            if let Some(val) = self.metrics[idx].1 {
-                if val > max {
-                    max = val;
-                }
-            }
-        }
-        max
     }
 
     // `iter` Returns an Iterator from the current start.
