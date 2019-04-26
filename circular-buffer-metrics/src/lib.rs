@@ -139,13 +139,22 @@ where
 
     /// The last item in the circular buffer
     pub last_idx: usize,
+
+    /// The circular buffer has two indexes, if the start and end
+    /// indexes are the same, then the buffer is full or has one item
+    /// By knowing the active_items in advance we know which situation is true
+    pub active_items: usize,
 }
 pub struct IterTimeSeries<'a, T: 'a>
 where
     T: Num + Clone + Copy,
 {
+    /// The reference to the TimeSeries struct to iterate over.
     inner: &'a TimeSeries<T>,
+    /// The current position state
     pos: usize,
+    /// The current item number, to be compared with the active_items
+    current_item: usize,
 }
 
 pub struct TimeSeriesChart<T>
@@ -202,6 +211,7 @@ where
             missing_values_policy: MissingValuesPolicy::default(),
             first_idx: 0,
             last_idx: 0,
+            active_items: 0,
         }
     }
 }
@@ -309,6 +319,7 @@ where
     {
         if self.metrics.len() < self.metrics_capacity {
             self.metrics.push(input);
+            self.active_items += 1;
         } else {
             // The vector might have been invalidated because data was outdated.
             // The first and last index shorten the vector but leave old data
@@ -318,6 +329,9 @@ where
             } else {
                 self.metrics[self.first_idx] = input;
                 self.first_idx = (self.first_idx + 1) % self.metrics_capacity;
+            }
+            if self.first_idx + self.last_idx < self.metrics_capacity {
+                self.active_items += 1;
             }
         }
         self.last_idx = (self.last_idx + 1) % (self.metrics_capacity + 1);
@@ -341,6 +355,7 @@ where
                 self.first_idx = 0;
                 self.last_idx = 1;
                 self.metrics[0] = (input.0, Some(input.1));
+                self.active_items = 1;
             } else {
                 // Fill missing entries with None
                 let max_epoch = self.metrics[last_idx].0;
@@ -440,6 +455,7 @@ where
         IterTimeSeries {
             inner: self,
             pos: self.first_idx,
+            current_item: 0,
         }
     }
 }
@@ -450,14 +466,16 @@ where
 {
     type Item = &'a (u64, Option<T>);
     fn next(&mut self) -> Option<Self::Item> {
-        if self.inner.metrics.is_empty() || self.pos == self.inner.last_idx {
+        if self.inner.metrics.is_empty() || self.current_item == self.inner.active_items {
             return None;
         }
-        let curr_pos = self.pos;
+        let curr_pos = self.pos % self.inner.metrics.len();
         self.pos = (self.pos + 1) % (self.inner.metrics.len() + 1);
+        self.current_item += 1;
         Some(&self.inner.metrics[curr_pos])
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,25 +540,29 @@ mod tests {
             test.as_vec(),
             vec![(10, Some(0)), (11, None), (12, None), (13, Some(3))]
         );
+        test.push((14, 4));
         // Starting at 11
         test.first_idx = 1;
         test.last_idx = 1;
         assert_eq!(
             test.as_vec(),
-            vec![(11, None), (12, None), (13, Some(3)), (10, Some(0))]
+            vec![(11, None), (12, None), (13, Some(3)), (14, Some(4))]
         );
         // Only 11
+        test.active_items = 1;
         test.first_idx = 1;
         test.last_idx = 2;
         assert_eq!(test.as_vec(), vec![(11, None)]);
         // Only 13
         test.first_idx = 3;
         test.last_idx = 4;
+        test.active_items = 1;
         assert_eq!(test.as_vec(), vec![(13, Some(3))]);
-        // 13, 10
+        // 13, 14
         test.first_idx = 3;
         test.last_idx = 1;
-        assert_eq!(test.as_vec(), vec![(13, Some(3)), (10, Some(0))]);
+        test.active_items = 2;
+        assert_eq!(test.as_vec(), vec![(13, Some(3)), (14, Some(4))]);
     }
     #[test]
     fn it_fills_empty_epochs() {
@@ -552,14 +574,17 @@ mod tests {
             test.metrics,
             vec![(10, Some(0)), (11, None), (12, None), (13, Some(3))]
         );
+        assert_eq!(test.active_items, 4);
         // Test the whole vector is discarded
         test.push((18, 8));
+        assert_eq!(test.active_items, 1);
         assert_eq!(
             test.metrics,
             vec![(18, Some(8)), (11, None), (12, None), (13, Some(3))]
         );
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 1);
+        assert_eq!(test.active_items, 1);
         assert_eq!(test.as_vec(), vec![(18, Some(8))]);
         test.push((20, 0));
         assert_eq!(
@@ -568,6 +593,7 @@ mod tests {
         );
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 3);
+        assert_eq!(test.active_items, 3);
         assert_eq!(
             test.as_vec(),
             vec![(18, Some(8)), (19, None), (20, Some(0))]
