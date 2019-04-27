@@ -25,9 +25,11 @@ use num_traits::*;
 use std::time::UNIX_EPOCH;
 
 use futures::{Future, Stream};
+use hyper::rt;
 use hyper::Client;
 use serde_json::Value;
 use std::io;
+use std::io::Write;
 use tokio_core::reactor::Core;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
@@ -145,6 +147,10 @@ where
     /// By knowing the active_items in advance we know which situation is true
     pub active_items: usize,
 }
+
+/// `IterTimeSeries` provides the Iterator Trait for TimeSeries metrics.
+/// The state for the iteration is held en "pos" field. The "current_item" is
+/// used to determine if further iterations on the circular buffer is needed.
 pub struct IterTimeSeries<'a, T: 'a>
 where
     T: Num + Clone + Copy,
@@ -157,6 +163,58 @@ where
     current_item: usize,
 }
 
+#[derive(Clone)]
+pub struct PrometheusTimeSeries<T>
+where
+    T: Num + Clone + Copy + std::marker::Sync,
+{
+    //l The TimeSeries metrics storage
+    pub time_series: TimeSeries<T>,
+
+    /// The URL were Prometheus metrics may be acquaired
+    pub url: String,
+
+    /// The time in secondso to get the metrics from Prometheus
+    /// Shouldn't be faster than the scrape interval for the Target
+    pub pull_interval: usize,
+}
+
+impl<T> PrometheusTimeSeries<T>
+where
+    T: Num + Clone + Copy + std::marker::Sync,
+{
+    pub fn new(url: String, pull_interval: usize) -> PrometheusTimeSeries<T> {
+        //url should be like ("http://localhost:9090/api/v1/query?{}",query)
+        PrometheusTimeSeries {
+            time_series: TimeSeries::default(),
+            url,
+            pull_interval,
+        }
+    }
+    pub fn load(&mut self) -> futures::Lazy<T, ()> {
+        rt::lazy(|| {
+            let client = Client::new();
+            let uri = self.url.parse().unwrap();
+            client
+                .get(uri)
+                .and_then(|res| {
+                    println!("Response: {}", res.status());
+                    res.into_body()
+                        // Body is a stream, so as each chunk arrives...
+                        .for_each(|chunk| {
+                            io::stdout()
+                                .write_all(&chunk)
+                                .map_err(|e| panic!("example expects stdout is open, error={}", e))
+                        })
+                })
+                .map_err(|err| {
+                    println!("Error: {}", err);
+                })
+        })
+    }
+}
+/// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
+/// X, Y position and has methods to draw in opengl.
 pub struct TimeSeriesChart<T>
 where
     T: Num + Clone + Copy,
@@ -175,7 +233,7 @@ where
     pub width: f32,
 
     /// The height of the activity line region
-    pub metrics_height: f32,
+    pub chart_height: f32,
 
     /// The spacing between the activity line segments, could be renamed to line length
     pub tick_spacing: f32,
@@ -445,6 +503,13 @@ where
             .unwrap()
             .as_secs();
         self.push((now, input));
+    }
+
+    //
+    fn from_prometheus(&mut self, url: String)
+    where
+        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
+    {
     }
 
     // `iter` Returns an Iterator from the current start.
@@ -739,10 +804,6 @@ mod tests {
 // self.activity_levels[activity_time_length - 1] = new_value;
 // }
 // TODO: self.update_activity_opengl_vecs(size);
-// }
-// fn from_prometheus(&mut self, &mut metrics: Vec<(u64, Self::MetricType)>, url: String)
-//     where Self::MetricType: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded +
-// FromPrimitive {
 // }
 //
 // `init_opengl_context` provides a default initialization of OpengL
