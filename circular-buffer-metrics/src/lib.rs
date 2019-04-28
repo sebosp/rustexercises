@@ -13,10 +13,12 @@
 // -- When activated on toggle it could blur a portion of the screen
 // -- derive builder
 // -- Use prometheus queries instead of our own aggregation/etc.
+// -- mock the prometheus server and response
 
 extern crate futures;
 extern crate hyper;
 extern crate num_traits;
+extern crate serde;
 extern crate serde_json;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
@@ -24,12 +26,12 @@ extern crate tokio_core;
 use num_traits::*;
 use std::time::UNIX_EPOCH;
 
-use futures::{Future, Stream};
-use hyper::rt;
+#[macro_use]
+extern crate serde_derive;
+use hyper::rt::{self, Future, Stream};
 use hyper::Client;
 use serde_json::Value;
-use std::io;
-use std::io::Write;
+use std::io::{self, Write};
 use tokio_core::reactor::Core;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
@@ -163,10 +165,11 @@ where
     current_item: usize,
 }
 
-#[derive(Clone)]
-pub struct PrometheusTimeSeries<T>
+#[derive(Clone, Deserialize, Debug)]
+pub struct PrometheusTimeSeries<T, C>
 where
-    T: Num + Clone + Copy + std::marker::Sync,
+    T: Num + Clone + Copy,
+    C: std::marker::Sync,
 {
     //l The TimeSeries metrics storage
     pub time_series: TimeSeries<T>,
@@ -177,40 +180,42 @@ where
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
     pub pull_interval: usize,
+
+    /// The http client
+    pub http_client: Client<C>,
 }
 
-impl<T> PrometheusTimeSeries<T>
+impl<T, C> PrometheusTimeSeries<T, C>
 where
-    T: Num + Clone + Copy + std::marker::Sync,
+    T: Num + Clone + Copy,
+    C: std::marker::Sync,
 {
-    pub fn new(url: String, pull_interval: usize) -> PrometheusTimeSeries<T> {
+    pub fn new(url: String, pull_interval: usize) -> PrometheusTimeSeries<T, C> {
         //url should be like ("http://localhost:9090/api/v1/query?{}",query)
         PrometheusTimeSeries {
             time_series: TimeSeries::default(),
             url,
             pull_interval,
+            http_client: Client::new(),
         }
     }
-    pub fn load(&mut self) -> futures::Lazy<T, ()> {
-        rt::lazy(|| {
-            let client = Client::new();
-            let uri = self.url.parse().unwrap();
-            client
-                .get(uri)
-                .and_then(|res| {
-                    println!("Response: {}", res.status());
-                    res.into_body()
-                        // Body is a stream, so as each chunk arrives...
-                        .for_each(|chunk| {
-                            io::stdout()
-                                .write_all(&chunk)
-                                .map_err(|e| panic!("example expects stdout is open, error={}", e))
-                        })
-                })
-                .map_err(|err| {
-                    println!("Error: {}", err);
-                })
-        })
+    pub fn load(&mut self) {
+        let uri = self.url.parse().unwrap();
+        self.http_client
+            .get(uri)
+            .and_then(|res| {
+                println!("Response: {}", res.status());
+                res.into_body()
+                    // Body is a stream, so as each chunk arrives...
+                    .for_each(|chunk| {
+                        io::stdout()
+                            .write_all(&chunk)
+                            .map_err(|e| panic!("example expects stdout is open, error={}", e))
+                    })
+            })
+            .map_err(|err| {
+                println!("Error: {}", err);
+            });
     }
 }
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
@@ -778,6 +783,15 @@ mod tests {
         let mut iter_test3 = test3.iter();
         assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
     }
+    #[test]
+    fn it_loads_prometheus_metrics() {
+        // Test new()
+        let test0 = PrometheusTimeSeries::new(
+            String::from("http://localhost:9090/api/v1/query?query=up"),
+            15,
+        );
+        test0.load();
+    }
     // let size = SizeInfo{
     // width: 100f32,
     // height: 100f32,
@@ -1114,47 +1128,6 @@ mod tests {
 // }
 // }
 //
-// pub struct PrometheusMetric {
-// name: String,
-// url: String,
-// }
-//
-// impl PrometheusMetric {
-// pub fn load() -> Future {
-// rt::run(rt::lazy(|| {
-// let client = Client::new();
-// let uri = format!("http://localhost:9090/api/v1/query?{}",query)
-// .parse()
-// .unwrap();
-// client
-// .get(uri)
-// .and_then(|res| {
-// println!("Response: {}", res.status());
-// res
-// .into_body()
-// Body is a stream, so as each chunk arrives...
-// .for_each(|chunk| {
-// io::stdout()
-// .write_all(&chunk)
-// .map_err(|e| {
-// panic!("example expects stdout is open, error={}", e)
-// })
-// })
-// })
-// .map_err(|err| {
-// println!("Error: {}", err);
-// })
-// }));
-// }
-// pub fn new(name: String, query: String) -> PrometheusMetric {
-// PrometheusMetric {
-// url: format!("http://localhost:9090/api/v1/query?{}",query),
-// name,
-// }
-// }
-// }
-//
-// pub struct LoadAvg {
 // From https://docs.rs/procinfo/0.4.2/procinfo/struct.LoadAvg.html
 // Load average over the last minute.
 // load_avg_1_min: ActivityLevels<f32>,
@@ -1250,7 +1223,3 @@ mod tests {
 // }
 //
 // }
-
-// impl TimeSeries for ActivityLevels {
-//    fn draw()
-//}
