@@ -36,7 +36,7 @@ use tokio_core::reactor::Core;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
 /// when drawing the Metric
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MissingValuesPolicy<T>
 where
     T: Num + Clone + Copy,
@@ -62,7 +62,7 @@ where
 
 /// `ValueCollisionPolicy` handles collisions when several values are collected
 /// for the same time unit, allowing for overwriting, incrementing, etc.
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ValueCollisionPolicy {
     Overwrite,
     Increment,
@@ -77,7 +77,7 @@ impl Default for ValueCollisionPolicy {
 }
 
 /// `TimeSeriesStats` contains statistics about the current TimeSeries
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TimeSeriesStats<T>
 where
     T: Num + Clone + Copy,
@@ -115,7 +115,7 @@ where
 /// time has passed without metrics, the vecotr is allowed to shrink without
 /// memory rellocation, this is achieved by using two indexes for the first
 /// and last item.
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TimeSeries<T>
 where
     T: Num + Clone + Copy,
