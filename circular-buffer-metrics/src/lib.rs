@@ -23,11 +23,13 @@ extern crate serde_json;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
 // use crate::term::SizeInfo;
+use hyper::client::HttpConnector;
 use num_traits::*;
 use std::time::UNIX_EPOCH;
 
 #[macro_use]
 extern crate serde_derive;
+use futures::future::*;
 use hyper::rt::{self, Future, Stream};
 use hyper::Client;
 use serde_json::Value;
@@ -36,7 +38,7 @@ use tokio_core::reactor::Core;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
 /// when drawing the Metric
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum MissingValuesPolicy<T>
 where
     T: Num + Clone + Copy,
@@ -62,7 +64,7 @@ where
 
 /// `ValueCollisionPolicy` handles collisions when several values are collected
 /// for the same time unit, allowing for overwriting, incrementing, etc.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ValueCollisionPolicy {
     Overwrite,
     Increment,
@@ -77,7 +79,7 @@ impl Default for ValueCollisionPolicy {
 }
 
 /// `TimeSeriesStats` contains statistics about the current TimeSeries
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TimeSeriesStats<T>
 where
     T: Num + Clone + Copy,
@@ -115,7 +117,7 @@ where
 /// time has passed without metrics, the vecotr is allowed to shrink without
 /// memory rellocation, this is achieved by using two indexes for the first
 /// and last item.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TimeSeries<T>
 where
     T: Num + Clone + Copy,
@@ -165,49 +167,53 @@ where
     current_item: usize,
 }
 
-#[derive(Clone, Deserialize, Debug)]
-pub struct PrometheusTimeSeries<T, C>
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrometheusTimeSeries<T>
 where
     T: Num + Clone + Copy,
-    C: std::marker::Sync,
 {
     //l The TimeSeries metrics storage
     pub time_series: TimeSeries<T>,
 
     /// The URL were Prometheus metrics may be acquaired
-    pub url: String,
+    pub url: hyper::Uri,
 
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
     pub pull_interval: usize,
-
-    /// The http client
-    pub http_client: Client<C>,
 }
 
-impl<T, C> PrometheusTimeSeries<T, C>
+impl<T> PrometheusTimeSeries<T>
 where
-    T: Num + Clone + Copy,
-    C: std::marker::Sync,
+    T: Num + Clone + Copy + std::marker::Send,
 {
-    pub fn new(url: String, pull_interval: usize) -> PrometheusTimeSeries<T, C> {
+    pub fn new(url: String, pull_interval: usize) -> Result<PrometheusTimeSeries<T>, String> {
         //url should be like ("http://localhost:9090/api/v1/query?{}",query)
-        PrometheusTimeSeries {
-            time_series: TimeSeries::default(),
-            url,
-            pull_interval,
-            http_client: Client::new(),
+        match url.parse::<hyper::Uri>() {
+            Ok(url) => {
+                if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
+                    Ok(PrometheusTimeSeries {
+                        time_series: TimeSeries::default(),
+                        url,
+                        pull_interval,
+                    })
+                } else {
+                    Err(String::from("Only http is supported."))
+                }
+            }
+            Err(_) => Err(String::from("Invalid URL")),
         }
     }
-    pub fn load(&mut self) {
-        let uri = self.url.parse().unwrap();
-        self.http_client
-            .get(uri)
+    pub fn load<'a>(&mut self) -> impl Future<Item = (), Error = ()> + 'a {
+        Client::new()
+            .get(self.url.clone())
             .and_then(|res| {
                 println!("Response: {}", res.status());
+                let mut body = String::new();
                 res.into_body()
                     // Body is a stream, so as each chunk arrives...
                     .for_each(|chunk| {
+                        println!("Chunk: {:?}", chunk);
                         io::stdout()
                             .write_all(&chunk)
                             .map_err(|e| panic!("example expects stdout is open, error={}", e))
@@ -215,7 +221,7 @@ where
             })
             .map_err(|err| {
                 println!("Error: {}", err);
-            });
+            })
     }
 }
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
@@ -510,15 +516,8 @@ where
         self.push((now, input));
     }
 
-    //
-    fn from_prometheus(&mut self, url: String)
-    where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
-    }
-
     // `iter` Returns an Iterator from the current start.
-    fn iter<'a>(&'a self) -> IterTimeSeries<'a, T>
+    fn iter(&self) -> IterTimeSeries<T>
     where
         T: Copy + Clone,
     {
@@ -785,12 +784,19 @@ mod tests {
     }
     #[test]
     fn it_loads_prometheus_metrics() {
-        // Test new()
-        let test0 = PrometheusTimeSeries::new(
+        // Test non plain http error:
+        let mut test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+            String::from("https://localhost:9090/api/v1/query?query=up"),
+            15,
+        );
+        assert_eq!(test0_res, Err(String::from("Only http is supported.")));
+        let mut test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
         );
-        test0.load();
+        assert_eq!(test1_res.is_ok(), true);
+        let mut test1 = test1_res.unwrap();
+        rt::run(test1.load());
     }
     // let size = SizeInfo{
     // width: 100f32,
