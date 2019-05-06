@@ -167,6 +167,54 @@ where
     current_item: usize,
 }
 
+// The below data structures for parsing something like:
+//  {
+//   "data": {
+//     "result": [
+//       {
+//         "metric": {
+//           "__name__": "up",
+//           "instance": "localhost:9090",
+//           "job": "prometheus"
+//         },
+//         "value": [
+//           1557052757.816,
+//           "1"
+//         ]
+//       },{...}
+//     ],
+//     "resultType": "vector"
+//   },
+//   "status": "success"
+// }
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PrometheusMetricName {
+    #[serde(rename = "__name__")]
+    name: String,
+    instance: String,
+    job: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PrometheusResult {
+    metric: PrometheusMetricName,
+    value: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PrometheusResponseData {
+    result: Vec<PrometheusResult>,
+    #[serde(rename = "resultType")]
+    result_type: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PrometheusResponse {
+    data: PrometheusResponseData,
+    status: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrometheusTimeSeries<T>
 where
@@ -204,19 +252,32 @@ where
             Err(_) => Err(String::from("Invalid URL")),
         }
     }
-    pub fn load<'a>(&mut self) -> impl Future<Item = (), Error = ()> + 'a {
+    pub fn load<'a>(&mut self) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'a {
         Client::new()
             .get(self.url.clone())
             .and_then(|res| {
                 println!("Response: {}", res.status());
-                let mut body = String::new();
+                println!("Headers: {:?}", res.headers());
                 res.into_body()
-                    // Body is a stream, so as each chunk arrives...
-                    .for_each(|chunk| {
-                        println!("Chunk: {:?}", chunk);
-                        io::stdout()
-                            .write_all(&chunk)
-                            .map_err(|e| panic!("example expects stdout is open, error={}", e))
+                    // A hyper::Body is a Stream of Chunk values. We need a
+                    // non-blocking way to get all the chunks so we can deserialize the response.
+                    //  The concat2() function takes the separate body chunks and makes one
+                    //  hyper::Chunk value with the contents of the entire body
+                    .concat2()
+                    .and_then(move |body: hyper::Chunk| {
+                        let prom_res: Result<PrometheusResponse, serde_json::Error> =
+                            serde_json::from_slice(&body);
+                        // XXX: Figure out how to return the error
+                        match prom_res {
+                            Ok(v) => {
+                                println!("returned JSON: {:?}", v);
+                                Ok(Some(v))
+                            }
+                            Err(err) => {
+                                println!("Unable to parse JSON: {:?}", err);
+                                Ok(None)
+                            }
+                        }
                     })
             })
             .map_err(|err| {
