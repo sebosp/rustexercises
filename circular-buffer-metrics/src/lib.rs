@@ -35,6 +35,7 @@ use hyper::Client;
 use serde_json::Value;
 use std::io::{self, Write};
 use tokio_core::reactor::Core;
+use tokio_core::reactor::Handle;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
 /// when drawing the Metric
@@ -215,8 +216,8 @@ pub struct PrometheusResponse {
     status: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct PrometheusTimeSeries<T>
+#[derive(Clone, Debug)]
+pub struct PrometheusTimeSeries<'a, T>
 where
     T: Num + Clone + Copy,
 {
@@ -229,13 +230,20 @@ where
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
     pub pull_interval: usize,
+
+    /// Tokio Core Handle
+    pub tokio_core: &'a tokio_core::reactor::Handle,
 }
 
-impl<T> PrometheusTimeSeries<T>
+impl<'a, T> PrometheusTimeSeries<'a, T>
 where
     T: Num + Clone + Copy + std::marker::Send,
 {
-    pub fn new(url: String, pull_interval: usize) -> Result<PrometheusTimeSeries<T>, String> {
+    pub fn new(
+        url: String,
+        pull_interval: usize,
+        tokio_core: &tokio_core::reactor::Handle,
+    ) -> Result<PrometheusTimeSeries<T>, String> {
         //url should be like ("http://localhost:9090/api/v1/query?{}",query)
         match url.parse::<hyper::Uri>() {
             Ok(url) => {
@@ -244,6 +252,7 @@ where
                         time_series: TimeSeries::default(),
                         url,
                         pull_interval,
+                        tokio_core,
                     })
                 } else {
                     Err(String::from("Only http is supported."))
@@ -252,7 +261,7 @@ where
             Err(_) => Err(String::from("Invalid URL")),
         }
     }
-    pub fn load<'a>(&mut self) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'a {
+    pub fn load<'b>(&mut self) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'b {
         Client::new()
             .get(self.url.clone())
             .and_then(|res| {
@@ -285,6 +294,23 @@ where
             })
     }
 }
+
+/// Implement PartialEq for PrometheusTimeSeries because we should ignore
+/// tokio_core_handle
+impl<'a, L> PartialEq<PrometheusTimeSeries<'a, L>> for PrometheusTimeSeries<'a, L>
+where
+    L: Num + Copy,
+{
+    fn eq(&self, other: &PrometheusTimeSeries<L>) -> bool
+    where
+        L: Num + Copy,
+    {
+        self.time_series == other.time_series
+            && self.url == other.url
+            && self.pull_interval == other.pull_interval
+    }
+}
+
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
 pub struct TimeSeriesChart<T>
@@ -845,19 +871,26 @@ mod tests {
     }
     #[test]
     fn it_loads_prometheus_metrics() {
+        // Create a Tokio Core to use for testing
+        let mut core = Core::new().unwrap();
+        let core_handle = &core.handle();
         // Test non plain http error:
-        let mut test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("https://localhost:9090/api/v1/query?query=up"),
             15,
+            &core_handle,
         );
         assert_eq!(test0_res, Err(String::from("Only http is supported.")));
-        let mut test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+        let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
+            &core_handle,
         );
         assert_eq!(test1_res.is_ok(), true);
         let mut test1 = test1_res.unwrap();
-        rt::run(test1.load());
+        let res1 = core.run(test1.load());
+        assert_eq!(res1.is_ok(), true);
+        assert_eq!(res1.unwrap().is_some(), true);
     }
     // let size = SizeInfo{
     // width: 100f32,
