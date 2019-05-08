@@ -189,7 +189,7 @@ where
 //   "status": "success"
 // }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct PrometheusMetricName {
     #[serde(rename = "__name__")]
     name: String,
@@ -197,20 +197,20 @@ struct PrometheusMetricName {
     job: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct PrometheusResult {
     metric: PrometheusMetricName,
     value: Vec<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct PrometheusResponseData {
     result: Vec<PrometheusResult>,
     #[serde(rename = "resultType")]
     result_type: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 pub struct PrometheusResponse {
     data: PrometheusResponseData,
     status: String,
@@ -888,9 +888,26 @@ mod tests {
         );
         assert_eq!(test1_res.is_ok(), true);
         let mut test1 = test1_res.unwrap();
-        let res1 = core.run(test1.load());
-        assert_eq!(res1.is_ok(), true);
-        assert_eq!(res1.unwrap().is_some(), true);
+        let res1_load = core.run(test1.load());
+        assert_eq!(res1_load.is_ok(), true);
+        let load1 = res1_load.unwrap();
+        if let Some(prom_response) = load1 {
+            // This requires a Prometheus Server running locally
+            assert_eq!(prom_response.status, String::from("success"));
+            assert_eq!(prom_response.data.result_type, String::from("vector"));
+            let prom_data_result = prom_response.data.result;
+            assert_ne!(prom_data_result.len(), 0);
+            // PrometheusResult { metric: PrometheusMetricName { name: "up", instance: "localhost:9090", job: "prometheus" }, value: [Number(1557246907.503), String("1")] }
+            for prom_item in prom_data_result.iter() {
+                if prom_item.metric.name == String::from("up")
+                    && prom_item.metric.job == String::from("prometheus")
+                    && prom_item.metric.instance == String::from("localhost:9090")
+                {
+                    assert_eq!(prom_item.value.len(), 2);
+                    assert_eq!(prom_item.value[1], String::from("1"));
+                }
+            }
+        }
     }
     // let size = SizeInfo{
     // width: 100f32,
