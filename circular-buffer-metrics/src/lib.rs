@@ -239,6 +239,11 @@ impl<'a, T> PrometheusTimeSeries<'a, T>
 where
     T: Num + Clone + Copy + std::marker::Send,
 {
+    /// `new` returns a new PrometheusTimeSeries. it takes a URL where to load
+    /// the data from and a pull_interval, this should match scrape interval in
+    /// Prometheus Server side to avoid pulling the same values over and over.
+    /// A tokio_core handle must be passed to the constructor to be used for
+    /// asynchronous tasks
     pub fn new(
         url: String,
         pull_interval: usize,
@@ -261,7 +266,46 @@ where
             Err(_) => Err(String::from("Invalid URL")),
         }
     }
-    pub fn load<'b>(&mut self) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'b {
+
+    /// `get_from_prometheus` loads data from PrometheusResponse into
+    /// the internal `time_series`, returns the number of items or an error
+    /// string
+    pub fn load_prometheus_response(
+        &mut self,
+        opt_res: Option<PrometheusResponse>,
+    ) -> Result<usize, String> 
+    where T: FromPrimitive + Bounded + ToPrimitive + PartialOrd
+    {
+        if let Some(res) = opt_res {
+            if res.status != String::from("success"){
+                return Ok(0usize);
+            }
+            let loaded_items = 0;
+            if res.data.result_type == String::from("vector") {
+            let data = res.data.result;
+            for item in data.iter() {
+                if item.metric.name == String::from("up")
+                    && item.metric.job == String::from("prometheus")
+                    && item.metric.instance == String::from("localhost:9090")
+                {
+                    if let Ok(value) = T::from_str_radix(item.value[1], 10) {
+                        self.time_series.push((prom_item.value[0], value));
+                        loaded_items+=1;
+                    }
+                }
+            }
+            }
+            Ok(loaded_items)
+        }
+    }
+
+    /// `get_from_prometheus` is an async operation that returns an Optional
+    /// PrometheusResponse, this function uses the internal `tokio_core`'s
+    /// handle which is a runtime provided to the function, the body of the
+    /// response is parsed and returned eventually.
+    pub fn get_from_prometheus<'b>(
+        &mut self,
+    ) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'b {
         Client::new()
             .get(self.url.clone())
             .and_then(|res| {
@@ -870,7 +914,26 @@ mod tests {
         assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
     }
     #[test]
-    fn it_loads_prometheus_metrics() {
+    fn it_gets_prometheus_metrics() {
+        // Create a Tokio Core to use for testing
+        let mut core = Core::new().unwrap();
+        let core_handle = &core.handle();
+        let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+            String::from("http://localhost:9090/api/v1/query?query=up"),
+            15,
+            &core_handle,
+        );
+        assert_eq!(test1_res.is_ok(), true);
+        let mut test1 = test1_res.unwrap();
+        let res1_get = core.run(test1.get_from_prometheus());
+        assert_eq!(res1_get.is_ok(), true);
+        let res1_load = test1.load_prometheus_response(res1_get);
+        // 2 items should have been loaded, one for Prometheus Server and the
+        // other for Prometheus Node Exporter
+        assert_eq!(res1_load, Ok(2usize); 
+    }
+    #[test]
+    fn it_gets_prometheus_metrics() {
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
         let core_handle = &core.handle();
@@ -888,11 +951,12 @@ mod tests {
         );
         assert_eq!(test1_res.is_ok(), true);
         let mut test1 = test1_res.unwrap();
-        let res1_load = core.run(test1.load());
-        assert_eq!(res1_load.is_ok(), true);
-        let load1 = res1_load.unwrap();
-        if let Some(prom_response) = load1 {
+        let res1_get = core.run(test1.get_from_prometheus());
+        assert_eq!(res1_get.is_ok(), true);
+        let get1 = res1_get.unwrap();
+        if let Some(prom_response) = get1 {
             // This requires a Prometheus Server running locally
+            // XXX: mock this.
             assert_eq!(prom_response.status, String::from("success"));
             assert_eq!(prom_response.data.result_type, String::from("vector"));
             let prom_data_result = prom_response.data.result;
