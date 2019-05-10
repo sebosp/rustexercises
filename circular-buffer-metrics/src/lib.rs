@@ -25,6 +25,7 @@ extern crate tokio_core;
 // use crate::term::SizeInfo;
 use hyper::client::HttpConnector;
 use num_traits::*;
+use std::collections::HashMap;
 use std::time::UNIX_EPOCH;
 
 #[macro_use]
@@ -190,24 +191,34 @@ where
 // }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-struct PrometheusMetricName {
-    #[serde(rename = "__name__")]
-    name: String,
-    instance: String,
-    job: String,
+struct PrometheusResult {
+    metric: HashMap<String, String>,
+    value: Vec<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
-struct PrometheusResult {
-    metric: PrometheusMetricName,
-    value: Vec<serde_json::Value>,
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+enum PrometheusResultType {
+    Matrix,
+    Vector,
+    Scalar,
+    String,
+    Unknown,
+}
+
+/// Implements the Default ResultType from Prometheus.
+/// Not sure Matrix should be the default
+/// https://prometheus.io/docs/prometheus/latest/querying/api/#expression-query-result-formats
+impl Default for PrometheusResultType {
+    fn default() -> PrometheusResultType {
+        PrometheusResultType::Unknown
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct PrometheusResponseData {
     result: Vec<PrometheusResult>,
     #[serde(rename = "resultType")]
-    result_type: String,
+    result_type: PrometheusResultType,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
@@ -221,11 +232,17 @@ pub struct PrometheusTimeSeries<'a, T>
 where
     T: Num + Clone + Copy,
 {
-    //l The TimeSeries metrics storage
+    /// The TimeSeries metrics storage
     pub time_series: TimeSeries<T>,
 
     /// The URL were Prometheus metrics may be acquaired
     pub url: hyper::Uri,
+
+    /// A response may be vector, matrix, scalar or string
+    pub result_type: PrometheusResultType,
+
+    /// The Labels key and value, if any, to match the response
+    pub labels: HashMap<String, String>,
 
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
@@ -247,9 +264,21 @@ where
     pub fn new(
         url: String,
         pull_interval: usize,
+        result_type: String,
+        labels: HashMap<String, String>,
         tokio_core: &tokio_core::reactor::Handle,
     ) -> Result<PrometheusTimeSeries<T>, String> {
         //url should be like ("http://localhost:9090/api/v1/query?{}",query)
+        let prom_result_type = match result_type.as_ref() {
+            "vector" => PrometheusResultType::Vector,
+            "matrix" => PrometheusResultType::Matrix,
+            "scalar" => PrometheusResultType::Scalar,
+            "string" => PrometheusResultType::String,
+            _ => PrometheusResultType::Unknown,
+        };
+        if prom_result_type == PrometheusResultType::Unknown {
+            return Err(format!("Unknown ResultType '{}'", result_type));
+        }
         match url.parse::<hyper::Uri>() {
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
@@ -257,7 +286,9 @@ where
                         time_series: TimeSeries::default(),
                         url,
                         pull_interval,
+                        result_type: prom_result_type,
                         tokio_core,
+                        labels,
                     })
                 } else {
                     Err(String::from("Only http is supported."))
@@ -267,36 +298,85 @@ where
         }
     }
 
+    /// `match_metric_labels` checks the labels in the incoming
+    /// PrometheusResponseData contains the required labels
+    pub fn match_metric_labels(&self, metric_labels: &HashMap<String, String>) -> bool {
+        for (required_label, required_value) in &self.labels {
+            match metric_labels.get(required_label) {
+                Some(return_value) => {
+                    if return_value != required_value {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+        }
+        true
+    }
+
+    /// Transforms an serde_json::Value into an optional T
+    pub fn serde_json_to_num(&self, input: &serde_json::Value) -> Option<T>
+    where
+        T: Num + FromPrimitive + Bounded + ToPrimitive + PartialOrd,
+    {
+        if input.is_string() {
+            if let Some(input) = input.as_str() {
+                if let Ok(value) = T::from_str_radix(input, 10) {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
+    /// Transforms an serde_json::Value into an optional u64
+    pub fn serde_json_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
+        // Remove the milliseconds:
+        if input.is_string() {
+            if let Some(input) = input.as_str() {
+                let v: Vec<&str> = input.split('.').collect();
+                if v.len() != 2 {
+                    return None;
+                }
+                if let Ok(value) = u64::from_str_radix(v[0], 10) {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
     /// `get_from_prometheus` loads data from PrometheusResponse into
     /// the internal `time_series`, returns the number of items or an error
     /// string
     pub fn load_prometheus_response(
         &mut self,
-        opt_res: Option<PrometheusResponse>,
-    ) -> Result<usize, String> 
-    where T: FromPrimitive + Bounded + ToPrimitive + PartialOrd
+        opt_res: Result<Option<PrometheusResponse>, ()>,
+    ) -> Result<usize, String>
+    where
+        T: FromPrimitive + Bounded + ToPrimitive + PartialOrd,
     {
-        if let Some(res) = opt_res {
-            if res.status != String::from("success"){
+        let mut loaded_items = 0;
+        if let Ok(Some(res)) = opt_res {
+            if res.status != String::from("success") {
                 return Ok(0usize);
             }
-            let loaded_items = 0;
-            if res.data.result_type == String::from("vector") {
-            let data = res.data.result;
-            for item in data.iter() {
-                if item.metric.name == String::from("up")
-                    && item.metric.job == String::from("prometheus")
-                    && item.metric.instance == String::from("localhost:9090")
-                {
-                    if let Ok(value) = T::from_str_radix(item.value[1], 10) {
-                        self.time_series.push((prom_item.value[0], value));
-                        loaded_items+=1;
+            if res.data.result_type == PrometheusResultType::Vector {
+                let data = res.data.result;
+                for item in data.iter() {
+                    if self.match_metric_labels(&item.metric) {
+                        if let (Some(epoch), Some(value)) = (
+                            self.serde_json_to_u64(&item.value[0]),
+                            self.serde_json_to_num(&item.value[1]),
+                        ) {
+                            self.time_series.push((epoch, value));
+                            loaded_items += 1;
+                        }
                     }
                 }
             }
-            }
-            Ok(loaded_items)
         }
+        Ok(loaded_items)
     }
 
     /// `get_from_prometheus` is an async operation that returns an Optional
@@ -914,13 +994,19 @@ mod tests {
         assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
     }
     #[test]
-    fn it_gets_prometheus_metrics() {
+    fn it_loads_prometheus_metrics() {
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
         let core_handle = &core.handle();
+        let mut metric_labels = HashMap::new();
+        metric_labels.insert(String::from("name"), String::from("up"));
+        metric_labels.insert(String::from("job"), String::from("prometheus"));
+        metric_labels.insert(String::from("instance"), String::from("localhost:9090"));
         let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
+            String::from("vector"),
+            metric_labels,
             &core_handle,
         );
         assert_eq!(test1_res.is_ok(), true);
@@ -930,23 +1016,28 @@ mod tests {
         let res1_load = test1.load_prometheus_response(res1_get);
         // 2 items should have been loaded, one for Prometheus Server and the
         // other for Prometheus Node Exporter
-        assert_eq!(res1_load, Ok(2usize); 
+        assert_eq!(res1_load, Ok(2usize));
     }
     #[test]
     fn it_gets_prometheus_metrics() {
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
+        let mut test_labels = HashMap::new();
         let core_handle = &core.handle();
         // Test non plain http error:
         let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("https://localhost:9090/api/v1/query?query=up"),
             15,
+            String::from("vector"),
+            test_labels.clone(),
             &core_handle,
         );
         assert_eq!(test0_res, Err(String::from("Only http is supported.")));
         let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
+            String::from("vector"),
+            test_labels.clone(),
             &core_handle,
         );
         assert_eq!(test1_res.is_ok(), true);
@@ -958,7 +1049,7 @@ mod tests {
             // This requires a Prometheus Server running locally
             // XXX: mock this.
             assert_eq!(prom_response.status, String::from("success"));
-            assert_eq!(prom_response.data.result_type, String::from("vector"));
+            assert_eq!(prom_response.data.result_type, PrometheusResultType::Vector);
             let prom_data_result = prom_response.data.result;
             assert_ne!(prom_data_result.len(), 0);
             // PrometheusResult { metric: PrometheusMetricName { name: "up", instance: "localhost:9090", job: "prometheus" }, value: [Number(1557246907.503), String("1")] }
