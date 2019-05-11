@@ -192,15 +192,20 @@ where
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 struct PrometheusResult {
-    metric: HashMap<String, String>,
+    #[serde(rename = "metric")]
+    labels: HashMap<String, String>,
     value: Vec<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum PrometheusResultType {
+pub enum PrometheusResultType {
+    #[serde(rename = "matrix")]
     Matrix,
+    #[serde(rename = "vector")]
     Vector,
+    #[serde(rename = "scalar")]
     Scalar,
+    #[serde(rename = "string")]
     String,
     Unknown,
 }
@@ -305,10 +310,19 @@ where
             match metric_labels.get(required_label) {
                 Some(return_value) => {
                     if return_value != required_value {
+                        println!("Required label {} exists but required value: {} does not match existing value: {}", required_label, required_value, return_value);
                         return false;
+                    } else {
+                        println!(
+                            "Required label {} exists and matches required value",
+                            required_label
+                        );
                     }
                 }
-                None => return false,
+                None => {
+                    println!("Required label {} does not exists", required_label);
+                    return false;
+                }
             }
         }
         true
@@ -330,51 +344,44 @@ where
     }
 
     /// Transforms an serde_json::Value into an optional u64
-    pub fn serde_json_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
-        // Remove the milliseconds:
-        if input.is_string() {
-            if let Some(input) = input.as_str() {
-                let v: Vec<&str> = input.split('.').collect();
-                if v.len() != 2 {
-                    return None;
-                }
-                if let Ok(value) = u64::from_str_radix(v[0], 10) {
-                    return Some(value);
-                }
+    /// The epoch coming from Prometheus is a float, but our internal
+    /// representation is u64
+    pub fn prometheus_epoch_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
+        if input.is_number() {
+            if let Some(input) = input.as_f64() {
+                return Some(input as u64);
             }
         }
         None
     }
 
-    /// `get_from_prometheus` loads data from PrometheusResponse into
+    /// `load_prometheus_response` loads data from PrometheusResponse into
     /// the internal `time_series`, returns the number of items or an error
     /// string
-    pub fn load_prometheus_response(
-        &mut self,
-        opt_res: Result<Option<PrometheusResponse>, ()>,
-    ) -> Result<usize, String>
+    pub fn load_prometheus_response(&mut self, res: PrometheusResponse) -> Result<usize, String>
     where
-        T: FromPrimitive + Bounded + ToPrimitive + PartialOrd,
+        T: FromPrimitive + Bounded + ToPrimitive + PartialOrd + std::fmt::Debug,
     {
         let mut loaded_items = 0;
-        if let Ok(Some(res)) = opt_res {
-            if res.status != String::from("success") {
-                return Ok(0usize);
-            }
-            if res.data.result_type == PrometheusResultType::Vector {
-                let data = res.data.result;
-                for item in data.iter() {
-                    if self.match_metric_labels(&item.metric) {
-                        if let (Some(epoch), Some(value)) = (
-                            self.serde_json_to_u64(&item.value[0]),
-                            self.serde_json_to_num(&item.value[1]),
-                        ) {
-                            self.time_series.push((epoch, value));
-                            loaded_items += 1;
-                        }
+        if res.status != String::from("success") {
+            return Ok(0usize);
+        }
+        if res.data.result_type == PrometheusResultType::Vector {
+            let data = res.data.result;
+            for item in data.iter() {
+                println!("Working on item: {:?}", item);
+                if self.match_metric_labels(&item.labels) {
+                    let opt_epoch = self.prometheus_epoch_to_u64(&item.value[0]);
+                    let opt_value = self.serde_json_to_num(&item.value[1]);
+                    println!("epoch: {:?} and value: {:?}", opt_epoch, opt_value);
+                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+                        self.time_series.push((epoch, value));
+                        loaded_items += 1;
                     }
                 }
             }
+        } else {
+            println!("Skipping result_type: {:?}", res.data.result_type);
         }
         Ok(loaded_items)
     }
@@ -394,24 +401,10 @@ where
                 res.into_body()
                     // A hyper::Body is a Stream of Chunk values. We need a
                     // non-blocking way to get all the chunks so we can deserialize the response.
-                    //  The concat2() function takes the separate body chunks and makes one
-                    //  hyper::Chunk value with the contents of the entire body
+                    // The concat2() function takes the separate body chunks and makes one
+                    // hyper::Chunk value with the contents of the entire body
                     .concat2()
-                    .and_then(move |body: hyper::Chunk| {
-                        let prom_res: Result<PrometheusResponse, serde_json::Error> =
-                            serde_json::from_slice(&body);
-                        // XXX: Figure out how to return the error
-                        match prom_res {
-                            Ok(v) => {
-                                println!("returned JSON: {:?}", v);
-                                Ok(Some(v))
-                            }
-                            Err(err) => {
-                                println!("Unable to parse JSON: {:?}", err);
-                                Ok(None)
-                            }
-                        }
-                    })
+                    .and_then(|body| Ok(parse_json(&body)))
             })
             .map_err(|err| {
                 println!("Error: {}", err);
@@ -419,6 +412,22 @@ where
     }
 }
 
+/// `parse_json` transforms a hyper body chunk into a possible
+/// PrometheusResponse, mostly used for testing
+pub fn parse_json(body: &hyper::Chunk) -> Option<PrometheusResponse> {
+    let prom_res: Result<PrometheusResponse, serde_json::Error> = serde_json::from_slice(&body);
+    // XXX: Figure out how to return the error
+    match prom_res {
+        Ok(v) => {
+            println!("returned JSON: {:?}", v);
+            Some(v)
+        }
+        Err(err) => {
+            println!("Unable to parse JSON: {:?}", err);
+            None
+        }
+    }
+}
 /// Implement PartialEq for PrometheusTimeSeries because we should ignore
 /// tokio_core_handle
 impl<'a, L> PartialEq<PrometheusTimeSeries<'a, L>> for PrometheusTimeSeries<'a, L>
@@ -993,36 +1002,74 @@ mod tests {
         let mut iter_test3 = test3.iter();
         assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
     }
+
     #[test]
     fn it_loads_prometheus_metrics() {
         // Create a Tokio Core to use for testing
-        let mut core = Core::new().unwrap();
+        let core = Core::new().unwrap();
         let core_handle = &core.handle();
         let mut metric_labels = HashMap::new();
-        metric_labels.insert(String::from("name"), String::from("up"));
-        metric_labels.insert(String::from("job"), String::from("prometheus"));
-        metric_labels.insert(String::from("instance"), String::from("localhost:9090"));
-        let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
             String::from("vector"),
-            metric_labels,
+            metric_labels.clone(),
             &core_handle,
         );
-        assert_eq!(test1_res.is_ok(), true);
-        let mut test1 = test1_res.unwrap();
-        let res1_get = core.run(test1.get_from_prometheus());
-        assert_eq!(res1_get.is_ok(), true);
-        let res1_load = test1.load_prometheus_response(res1_get);
+        let test0_json = hyper::Chunk::from(
+            r#"
+            {
+              "status": "success",
+              "data": {
+                "resultType": "vector",
+                "result": [
+                  {
+                    "metric": {
+                      "__name__": "up",
+                      "instance": "localhost:9090",
+                      "job": "prometheus"
+                    },
+                    "value": [
+                      1557571137.732,
+                      "1"
+                    ]
+                  },
+                  {
+                    "metric": {
+                      "__name__": "up",
+                      "instance": "localhost:9100",
+                      "job": "node_exporter"
+                    },
+                    "value": [
+                      1557571137.732,
+                      "1"
+                    ]
+                  }
+                ]
+              }
+            }"#,
+        );
+        assert_eq!(test0_res.is_ok(), true);
+        let mut test0 = test0_res.unwrap();
+        let res0_get = parse_json(&test0_json);
+        assert_eq!(res0_get.is_some(), true);
+        let res0_load = test0.load_prometheus_response(res0_get.unwrap());
         // 2 items should have been loaded, one for Prometheus Server and the
         // other for Prometheus Node Exporter
-        assert_eq!(res1_load, Ok(2usize));
+        assert_eq!(res0_load, Ok(2usize));
+        metric_labels.insert(String::from("__name__"), String::from("up"));
+        metric_labels.insert(String::from("job"), String::from("prometheus"));
+        metric_labels.insert(String::from("instance"), String::from("localhost:9090"));
     }
+
     #[test]
     fn it_gets_prometheus_metrics() {
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
         let mut test_labels = HashMap::new();
+        test_labels.insert(String::from("name"), String::from("up"));
+        test_labels.insert(String::from("job"), String::from("prometheus"));
+        test_labels.insert(String::from("instance"), String::from("localhost:9090"));
         let core_handle = &core.handle();
         // Test non plain http error:
         let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
@@ -1053,15 +1100,15 @@ mod tests {
             let prom_data_result = prom_response.data.result;
             assert_ne!(prom_data_result.len(), 0);
             // PrometheusResult { metric: PrometheusMetricName { name: "up", instance: "localhost:9090", job: "prometheus" }, value: [Number(1557246907.503), String("1")] }
+            let mut found_prometheus_job_metric = false;
             for prom_item in prom_data_result.iter() {
-                if prom_item.metric.name == String::from("up")
-                    && prom_item.metric.job == String::from("prometheus")
-                    && prom_item.metric.instance == String::from("localhost:9090")
-                {
+                if test1.match_metric_labels(&test_labels) {
                     assert_eq!(prom_item.value.len(), 2);
                     assert_eq!(prom_item.value[1], String::from("1"));
+                    found_prometheus_job_metric = true;
                 }
             }
+            assert_eq!(found_prometheus_job_metric, true);
         }
     }
     // let size = SizeInfo{
