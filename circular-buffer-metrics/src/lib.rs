@@ -190,7 +190,7 @@ where
 //   "status": "success"
 // }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
 struct PrometheusResult {
     #[serde(rename = "metric")]
     labels: HashMap<String, String>,
@@ -219,14 +219,14 @@ impl Default for PrometheusResultType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
 struct PrometheusResponseData {
     result: Vec<PrometheusResult>,
     #[serde(rename = "resultType")]
     result_type: PrometheusResultType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
 pub struct PrometheusResponse {
     data: PrometheusResponseData,
     status: String,
@@ -1016,6 +1016,9 @@ mod tests {
             metric_labels.clone(),
             &core_handle,
         );
+        assert_eq!(test0_res.is_ok(), true);
+        let mut test0 = test0_res.unwrap();
+        // A json returned by prometheus
         let test0_json = hyper::Chunk::from(
             r#"
             {
@@ -1049,17 +1052,25 @@ mod tests {
               }
             }"#,
         );
-        assert_eq!(test0_res.is_ok(), true);
-        let mut test0 = test0_res.unwrap();
-        let res0_get = parse_json(&test0_json);
-        assert_eq!(res0_get.is_some(), true);
-        let res0_load = test0.load_prometheus_response(res0_get.unwrap());
+        let res0_json = parse_json(&test0_json);
+        assert_eq!(res0_json.is_some(), true);
+        let res0_load = test0.load_prometheus_response(res0_json.clone().unwrap());
         // 2 items should have been loaded, one for Prometheus Server and the
         // other for Prometheus Node Exporter
         assert_eq!(res0_load, Ok(2usize));
-        metric_labels.insert(String::from("__name__"), String::from("up"));
+
+        // Make the labels match only one instance
         metric_labels.insert(String::from("job"), String::from("prometheus"));
         metric_labels.insert(String::from("instance"), String::from("localhost:9090"));
+        test0.labels = metric_labels.clone();
+        let res1_load = test0.load_prometheus_response(res0_json.clone().unwrap());
+        assert_eq!(res1_load, Ok(1usize));
+
+        // Make the labels not match
+        metric_labels.insert(String::from("__name__"), String::from("down"));
+        test0.labels = metric_labels.clone();
+        let res2_load = test0.load_prometheus_response(res0_json.clone().unwrap());
+        assert_eq!(res2_load, Ok(0usize));
     }
 
     #[test]
