@@ -344,8 +344,8 @@ where
     }
 
     /// Transforms an serde_json::Value into an optional u64
-    /// The epoch coming from Prometheus is a float, but our internal
-    /// representation is u64
+    /// The epoch coming from Prometheus is a float (epoch with millisecond),
+    /// but our internal representation is u64
     pub fn prometheus_epoch_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
         if input.is_number() {
             if let Some(input) = input.as_f64() {
@@ -363,17 +363,15 @@ where
         T: FromPrimitive + Bounded + ToPrimitive + PartialOrd + std::fmt::Debug,
     {
         let mut loaded_items = 0;
-        if res.status != String::from("success") {
+        if res.status != "success" {
             return Ok(0usize);
         }
         if res.data.result_type == PrometheusResultType::Vector {
             let data = res.data.result;
             for item in data.iter() {
-                println!("Working on item: {:?}", item);
                 if self.match_metric_labels(&item.labels) {
                     let opt_epoch = self.prometheus_epoch_to_u64(&item.value[0]);
                     let opt_value = self.serde_json_to_num(&item.value[1]);
-                    println!("epoch: {:?} and value: {:?}", opt_epoch, opt_value);
                     if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
                         self.time_series.push((epoch, value));
                         loaded_items += 1;
@@ -388,7 +386,7 @@ where
 
     /// `get_from_prometheus` is an async operation that returns an Optional
     /// PrometheusResponse, this function uses the internal `tokio_core`'s
-    /// handle which is a runtime provided to the function, the body of the
+    /// handle which is a runtime provided to the class, the body of the
     /// response is parsed and returned eventually.
     pub fn get_from_prometheus<'b>(
         &mut self,
@@ -645,6 +643,14 @@ where
                 self.last_idx = 1;
                 self.metrics[0] = (input.0, Some(input.1));
                 self.active_items = 1;
+            } else if inactive_time == 0 {
+                // In this case, the last epoch and the current epoch match
+                if let Some(curr_val) = self.metrics[last_idx].1 {
+                    self.metrics[last_idx].1 =
+                        Some(self.resolve_metric_collision(curr_val, input.1));
+                } else {
+                    self.metrics[last_idx].1 = Some(input.1);
+                }
             } else {
                 // Fill missing entries with None
                 let max_epoch = self.metrics[last_idx].0;
@@ -1071,6 +1077,9 @@ mod tests {
         test0.labels = metric_labels.clone();
         let res2_load = test0.load_prometheus_response(res0_json.clone().unwrap());
         assert_eq!(res2_load, Ok(0usize));
+        // By default the metrics should have been Incremented (ValueCollisionPolicy)
+        // We have imported the metric 3 times
+        assert_eq!(test0.time_series.as_vec(), vec![(1557571137u64, Some(3.))]);
     }
 
     #[test]
