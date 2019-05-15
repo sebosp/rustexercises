@@ -444,6 +444,7 @@ where
 
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
+#[derive(Default)]
 pub struct TimeSeriesChart<T>
 where
     T: Num + Clone + Copy,
@@ -482,6 +483,23 @@ where
     pub marker_opengl_vecs: Vec<f32>,
 }
 
+impl<T> TimeSeriesChart<T>
+where
+    T: Num + Clone + Copy,
+{
+    /// `scale_x_to_size` Scales the value to the current display boundary
+    /// OpenGL displays from -1.0 (leftmost) to 1.0 (rightmost), translation is
+    /// performed here -1.0 is 0px and 1.0 is display X resolution
+    pub fn scale_x_to_size(&self, input_value: T, width: f32, padding_x: f32) -> f32
+    where
+        T: Num + ToPrimitive,
+    {
+        let center_x = width / 2.;
+        let x = padding_x + self.x_offset + input_value.to_f32().unwrap();
+        (x - center_x) / center_x
+    }
+}
+
 impl<T> Default for TimeSeries<T>
 where
     T: Num + Clone + Copy,
@@ -502,6 +520,7 @@ where
         }
     }
 }
+
 impl<T> TimeSeries<T>
 where
     T: Num + Clone + Copy,
@@ -1131,6 +1150,20 @@ mod tests {
             assert_eq!(found_prometheus_job_metric, true);
         }
     }
+
+    #[test]
+    fn it_scales_x_to_display_size() {
+        let test = TimeSeriesChart::default();
+        let min = test.scale_x_to_size(0f32, 100f32, 0f32);
+        assert_eq!(min, -1.0f32);
+        let max = test.scale_x_to_size(100f32, 100f32, 0f32);
+        assert_eq!(max, 1.0f32);
+        let mid = test.scale_x_to_size(50f32, 100f32, 0f32);
+        assert_eq!(mid, 0.0f32);
+        // offset 50 px
+        let mid = test.scale_x_to_size(50f32, 100f32, 50f32);
+        assert_eq!(mid, 1.0f32);
+    }
     // let size = SizeInfo{
     // width: 100f32,
     // height: 100f32,
@@ -1147,18 +1180,6 @@ mod tests {
 // fn update_opengl_vecs(size: SizeInfo) -> Vec<f32>{
 // unimplemented!("XXX");
 // }
-// Every time unit (currently second) is stored as an item in the array
-// Rotation may be needed due to inactivity or the array being filled
-// self.rotate_activity_levels_vec(input.0);
-// activity_time_length = metrics.len();
-// if activity_time_length < self.max_activity_ticks {
-// self.activity_levels.push(new_value);
-// } else {
-// self.activity_levels[activity_time_length - 1] = new_value;
-// }
-// TODO: self.update_activity_opengl_vecs(size);
-// }
-//
 // `init_opengl_context` provides a default initialization of OpengL
 // context. This function is called previous to sending the vector data.
 // This seems to be part of src/renderer/ mod tho...
@@ -1204,10 +1225,6 @@ mod tests {
 // The transparency of the activity line
 // pub alpha: f32,
 //
-// Useful for records that do not increment but rather are a fixed
-// or absolute value recorded at a given time
-// pub overwrite_last_entry: bool,
-//
 // A marker line to indicate a reference point, for example for load
 // to show where the 1 loadavg is, or to show disk capacity
 // pub marker_line: Option<T>,
@@ -1246,7 +1263,6 @@ mod tests {
 // activity_line_height: 25f32,
 // activity_tick_spacing: 5f32,
 // alpha: 1f32,
-// overwrite_last_entry: false,
 // marker_line: None,
 // missing_values_policy: MissingValuesPolicy::Zero,
 // }
@@ -1280,63 +1296,10 @@ mod tests {
 // self
 // }
 //
-// `with_overwrite_last_entry` overwrite instead of increment current time
-// entry
-// pub fn with_overwrite_last_entry(mut self, value: bool) -> ActivityLevels<T> {
-// self.overwrite_last_entry = value;
-// self
-// }
-//
 // `with_marker_line` initializes the marker line into a Some
 // pub fn with_marker_line(mut self, value: T) -> ActivityLevels<T> {
 // self.marker_line = Some(value);
 // self
-// }
-// `update_activity_level` Ensures time slots are filled with 0s for
-// inactivity and increments the current epoch activity_level slot by an
-// new_value, it uses the size to calculate the position from the
-// bottom in which to display the activity levels
-// pub fn update_activity_level(&mut self,
-// size: SizeInfo,
-// new_value: T
-// )
-// where T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive
-// {
-// XXX: Right now set to "as_secs", but could be used for other time units easily
-// let mut activity_time_length = self.activity_levels.len();
-// let now = std::time::SystemTime::now()
-// .duration_since(UNIX_EPOCH)
-// .unwrap()
-// .as_secs();
-// if activity_time_length == 0 {
-// The vector is empty, no need to rotate or do anything special
-// self.activity_levels.push(new_value);
-// self.last_activity_time = now;
-// self.update_activity_opengl_vecs(size);
-// return;
-// }
-// if now == self.last_activity_time {
-// The Vector is populated and has one active item at least which
-// we can work on, no need to rotate or do anything special
-// if self.overwrite_last_entry {
-// self.activity_levels[activity_time_length - 1] = new_value;
-// } else {
-// self.activity_levels[activity_time_length - 1] = self.activity_levels[activity_time_length - 1] +
-// new_value; }
-// self.update_activity_opengl_vecs(size);
-// return;
-// }
-// Every time unit (currently second) is stored as an item in the array
-// Rotation may be needed due to inactivity or the array being filled
-// self.rotate_activity_levels_vec(now);
-// activity_time_length = self.activity_levels.len();
-// if activity_time_length < self.max_activity_ticks {
-// self.activity_levels.push(new_value);
-// } else {
-// self.activity_levels[activity_time_length - 1] = new_value;
-// }
-// self.last_activity_time = now;
-// self.update_activity_opengl_vecs(size);
 // }
 //
 // `scale_y_to_size` Scales the value to the current display boundary
@@ -1352,16 +1315,6 @@ mod tests {
 // );
 // -(y - center_y) / center_y
 // }
-//
-// `scale_x_to_size` Scales the value to the current display boundary
-// pub fn scale_x_to_size(&self, size: SizeInfo, input_value: f32) -> f32
-// where T: Num + ToPrimitive
-// {
-// let center_x = size.width / 2.;
-// let x = size.padding_x + self.x_offset + input_value;
-// (x - center_x) / center_x
-// }
-//
 //
 // `update_marker_line_vecs` Scales the Marker Line to the current size of
 // the displayed points
