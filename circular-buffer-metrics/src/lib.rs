@@ -381,6 +381,9 @@ where
         } else {
             println!("Skipping result_type: {:?}", res.data.result_type);
         }
+        if loaded_items > 0 {
+            self.time_series.calculate_stats();
+        }
         Ok(loaded_items)
     }
 
@@ -444,7 +447,7 @@ where
 
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TimeSeriesChart<T>
 where
     T: Num + Clone + Copy,
@@ -487,16 +490,30 @@ impl<T> TimeSeriesChart<T>
 where
     T: Num + Clone + Copy,
 {
-    /// `scale_x_to_size` Scales the value to the current display boundary
-    /// OpenGL displays from -1.0 (leftmost) to 1.0 (rightmost), translation is
-    /// performed here -1.0 is 0px and 1.0 is display X resolution
-    pub fn scale_x_to_size(&self, input_value: T, width: f32, padding_x: f32) -> f32
+    /// `scale_x_to_size` Scales the value from the current display boundary to
+    /// a cartesian plane from [-1.0, 1.0], where -1.0 is 0px (left-most) and
+    /// 1.0 is the `display_width` parameter (right-most), i.e. 1024px.
+    pub fn scale_x_to_size(&self, input_value: T, display_width: f32, padding_x: f32) -> f32
     where
         T: Num + ToPrimitive,
     {
-        let center_x = width / 2.;
+        let center_x = display_width / 2.;
         let x = padding_x + self.x_offset + input_value.to_f32().unwrap();
         (x - center_x) / center_x
+    }
+    /// `scale_y_to_size` Scales the value from the current display boundary to
+    /// a cartesian plane from [-1.0, 1.0], where 1.0 is 0px (top) and -1.0 is
+    /// the `display_height` parameter (bottom), i.e. 768px.
+    pub fn scale_y_to_size(&self, input_value: T, display_height: f32, padding_y: f32) -> f32
+    where
+        T: Num + ToPrimitive,
+    {
+        let center_y = display_height / 2.;
+        let y = display_height
+            - 2. * padding_y
+            - (self.chart_height * num_traits::ToPrimitive::to_f32(&input_value).unwrap()
+                / num_traits::ToPrimitive::to_f32(&self.metrics.metric_stats.max).unwrap());
+        -(y - center_y) / center_y
     }
 }
 
@@ -1154,14 +1171,52 @@ mod tests {
     #[test]
     fn it_scales_x_to_display_size() {
         let test = TimeSeriesChart::default();
+        // display size: 100 px, input the value: 0, padding_x: 0
+        // The value should return should be left-most: -1.0
         let min = test.scale_x_to_size(0f32, 100f32, 0f32);
         assert_eq!(min, -1.0f32);
+        // display size: 100 px, input the value: 100, padding_x: 0
+        // The value should return should be right-most: 1.0
         let max = test.scale_x_to_size(100f32, 100f32, 0f32);
         assert_eq!(max, 1.0f32);
+        // display size: 100 px, input the value: 50, padding_x: 0
+        // The value should return should be the center: 0.0
         let mid = test.scale_x_to_size(50f32, 100f32, 0f32);
         assert_eq!(mid, 0.0f32);
-        // offset 50 px
+        // display size: 100 px, input the value: 50, padding_x: 50px
+        // The value returned should be the right-most: 1.0
         let mid = test.scale_x_to_size(50f32, 100f32, 50f32);
+        assert_eq!(mid, 1.0f32);
+    }
+
+    #[test]
+    fn it_scales_y_to_display_size() {
+        let mut test = TimeSeriesChart::default();
+        // To make testing easy, let's make three values equivalent:
+        // - Chart height
+        // - Max Metric collected
+        // - Max resolution in pixels
+        test.metrics.metric_stats.max = 100f32;
+        test.chart_height = 100f32;
+        // display size: 100 px, input the value: 100, padding_y: 0
+        // The value should return should be lowest: -1.0
+        println!("Checking TimeSeries: {:?}", test);
+        let min = test.scale_y_to_size(0f32, 100f32, 0f32);
+        assert_eq!(min, -1.0f32);
+        // display size: 100 px, input the value: 100, padding_y: 0
+        // The value should return should be upper-most: 1.0
+        let max = test.scale_y_to_size(100f32, 100f32, 0f32);
+        assert_eq!(max, 1.0f32);
+        // display size: 100 px, input the value: 50, padding_y: 0
+        // The value should return should be the center: 0.0
+        let mid = test.scale_y_to_size(50f32, 100f32, 0f32);
+        assert_eq!(mid, 0.0f32);
+        // display size: 100 px, input the value: 50, padding_y: 25
+        // The value returned should be upper-most: 1.0
+        // In this case, the chart (100px) is bigger than the display,
+        // which means some values would have been chopped (anything above
+        // 50f32)
+        let mid = test.scale_y_to_size(50f32, 100f32, 25f32);
         assert_eq!(mid, 1.0f32);
     }
     // let size = SizeInfo{
@@ -1300,20 +1355,6 @@ mod tests {
 // pub fn with_marker_line(mut self, value: T) -> ActivityLevels<T> {
 // self.marker_line = Some(value);
 // self
-// }
-//
-// `scale_y_to_size` Scales the value to the current display boundary
-// pub fn scale_y_to_size(&self, size: SizeInfo, input_value: T, max_activity_value: T) -> f32
-// where T: Num + ToPrimitive
-// {
-// let center_y = size.height / 2.;
-// let y = size.height -
-// 2. * size.padding_y -
-// ( self.activity_line_height *
-// num_traits::ToPrimitive::to_f32(&input_value).unwrap() /
-// num_traits::ToPrimitive::to_f32(&max_activity_value).unwrap()
-// );
-// -(y - center_y) / center_y
 // }
 //
 // `update_marker_line_vecs` Scales the Marker Line to the current size of
