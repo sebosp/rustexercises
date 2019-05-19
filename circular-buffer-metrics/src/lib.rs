@@ -23,20 +23,14 @@ extern crate serde_json;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
 // use crate::term::SizeInfo;
-use hyper::client::HttpConnector;
 use num_traits::*;
 use std::collections::HashMap;
 use std::time::UNIX_EPOCH;
 
 #[macro_use]
 extern crate serde_derive;
-use futures::future::*;
-use hyper::rt::{self, Future, Stream};
+use hyper::rt::{Future, Stream};
 use hyper::Client;
-use serde_json::Value;
-use std::io::{self, Write};
-use tokio_core::reactor::Core;
-use tokio_core::reactor::Handle;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
 /// when drawing the Metric
@@ -190,8 +184,31 @@ where
 //   "status": "success"
 // }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum PrometheusResult {
+    Vector(PrometheusVectorResult),
+    Matrix(PrometheusMatrixResult),
+}
+
+/// Implements the Default PrometheusResult
+impl Default for PrometheusResult {
+    fn default() -> PrometheusResult {
+        PrometheusResult::Vector(PrometheusVectorResult {
+            labels: HashMap::new(),
+            value: vec![],
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-struct PrometheusResult {
+struct PrometheusMatrixResult {
+    #[serde(rename = "metric")]
+    labels: HashMap<String, String>,
+    values: Vec<Vec<serde_json::Value>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
+struct PrometheusVectorResult {
     #[serde(rename = "metric")]
     labels: HashMap<String, String>,
     value: Vec<serde_json::Value>,
@@ -211,7 +228,6 @@ pub enum PrometheusResultType {
 }
 
 /// Implements the Default ResultType from Prometheus.
-/// Not sure Matrix should be the default
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#expression-query-result-formats
 impl Default for PrometheusResultType {
     fn default() -> PrometheusResultType {
@@ -366,21 +382,26 @@ where
         if res.status != "success" {
             return Ok(0usize);
         }
-        if res.data.result_type == PrometheusResultType::Vector {
-            let data = res.data.result;
-            for item in data.iter() {
-                if self.match_metric_labels(&item.labels) {
-                    let opt_epoch = self.prometheus_epoch_to_u64(&item.value[0]);
-                    let opt_value = self.serde_json_to_num(&item.value[1]);
-                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                        self.time_series.push((epoch, value));
-                        loaded_items += 1;
+        match res.data.result_type {
+            PrometheusResultType::Vector => {
+                if let PrometheusResult::Vector(result) = res.data.result {
+                    for item in res.data.result.iter() {
+                        if self.match_metric_labels(&item.labels) {
+                            // The result array is  [epoch, value, epoch, value]
+                            for item in item.value.chunks(2) {
+                                let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
+                                let opt_value = self.serde_json_to_num(&item[1]);
+                                if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+                                    self.time_series.push((epoch, value));
+                                    loaded_items += 1;
+                                }
+                            }
+                        }
                     }
                 }
             }
-        } else {
-            println!("Skipping result_type: {:?}", res.data.result_type);
-        }
+            _ => println!("Skipping result_type: {:?}", res.data.result_type),
+        };
         if loaded_items > 0 {
             self.time_series.calculate_stats();
         }
@@ -810,6 +831,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_core::reactor::Core;
 
     #[test]
     fn it_pushes_circular_buffer() {
@@ -1046,7 +1068,80 @@ mod tests {
     }
 
     #[test]
-    fn it_loads_prometheus_metrics() {
+    fn it_skips_prometheus_errors() {
+        // Create a Tokio Core to use for testing
+        let core = Core::new().unwrap();
+        let core_handle = &core.handle();
+        // This URL has the end time BEFORE the start time
+        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+            String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253499&end=1558253479&step=1"),
+            15,
+            String::from("matrix"),
+            HashMap::new(),
+            &core_handle,
+        );
+        assert_eq!(test0_res.is_ok(), true);
+        let mut test0 = test0_res.unwrap();
+        // A json returned by prometheus
+        let test0_json = hyper::Chunk::from(
+            r#"
+            {
+              "status": "error",
+              "errorType": "bad_data",
+              "error": "end timestamp must not be before start time"
+            }
+            "#,
+        );
+        let res0_json = parse_json(&test0_json);
+        assert_eq!(res0_json.is_none(), true);
+    }
+    #[test]
+    fn it_loads_prometheus_matrix() {
+        // Create a Tokio Core to use for testing
+        let core = Core::new().unwrap();
+        let core_handle = &core.handle();
+        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+            String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253469&end=1558253479&step=1"),
+            15,
+            String::from("matrix"),
+            HashMap::new(),
+            &core_handle,
+        );
+        assert_eq!(test0_res.is_ok(), true);
+        let mut test0 = test0_res.unwrap();
+        // A json returned by prometheus
+        let test0_json = hyper::Chunk::from(
+            r#"
+            {
+              "status": "success",
+              "data": {
+                "resultType": "matrix",
+                "result": [
+                  {
+                    "metric": {
+                      "__name__": "node_load1",
+                      "instance": "localhost:9100",
+                      "job": "node_exporter"
+                    },
+                    "values": [
+                        [1558253469,"1.42"],[1558253470,"1.42"],[1558253471,"1.55"],
+                        [1558253472,"1.55"],[1558253473,"1.55"],[1558253474,"1.55"],
+                        [1558253475,"1.55"],[1558253476,"1.55"],[1558253477,"1.55"],
+                        [1558253478,"1.55"],[1558253479,"1.55"]]
+                  }
+                ]
+              }
+            }"#,
+        );
+        let res0_json = parse_json(&test0_json);
+        assert_eq!(res0_json.is_some(), true);
+        let res0_load = test0.load_prometheus_response(res0_json.clone().unwrap());
+        // 2 items should have been loaded, one for Prometheus Server and the
+        // other for Prometheus Node Exporter
+        assert_eq!(res0_load, Ok(11usize));
+    }
+    #[test]
+    fn it_loads_prometheus_vector() {
         // Create a Tokio Core to use for testing
         let core = Core::new().unwrap();
         let core_handle = &core.handle();
@@ -1147,8 +1242,7 @@ mod tests {
         let mut test1 = test1_res.unwrap();
         let res1_get = core.run(test1.get_from_prometheus());
         assert_eq!(res1_get.is_ok(), true);
-        let get1 = res1_get.unwrap();
-        if let Some(prom_response) = get1 {
+        if let Ok(Some(prom_response)) = res1_get {
             // This requires a Prometheus Server running locally
             // XXX: mock this.
             assert_eq!(prom_response.status, String::from("success"));
