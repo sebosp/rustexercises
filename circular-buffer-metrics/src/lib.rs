@@ -184,62 +184,45 @@ where
 //   "status": "success"
 // }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum PrometheusResult {
-    Vector(PrometheusVectorResult),
-    Matrix(PrometheusMatrixResult),
-}
-
-/// Implements the Default PrometheusResult
-impl Default for PrometheusResult {
-    fn default() -> PrometheusResult {
-        PrometheusResult::Vector(PrometheusVectorResult {
-            labels: HashMap::new(),
-            value: vec![],
-        })
-    }
-}
-
+/// `PrometheusMatrixResult` contains Range Vectors, data is stored like this
+/// [[Epoch1, Metric1], [Epoch2, Metric2], ...]
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-struct PrometheusMatrixResult {
+pub struct PrometheusMatrixResult {
     #[serde(rename = "metric")]
     labels: HashMap<String, String>,
     values: Vec<Vec<serde_json::Value>>,
 }
 
+/// `PrometheusVectorResult` contains Instant Vectors, data is stored like this
+/// [Epoch1, Metric1, Epoch2, Metric2, ...]
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-struct PrometheusVectorResult {
+pub struct PrometheusVectorResult {
     #[serde(rename = "metric")]
     labels: HashMap<String, String>,
     value: Vec<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum PrometheusResultType {
-    #[serde(rename = "matrix")]
-    Matrix,
-    #[serde(rename = "vector")]
-    Vector,
-    #[serde(rename = "scalar")]
-    Scalar,
-    #[serde(rename = "string")]
-    String,
-    Unknown,
-}
-
-/// Implements the Default ResultType from Prometheus.
+/// `PrometheusResponseData` may be one of these types:
 /// https://prometheus.io/docs/prometheus/latest/querying/api/#expression-query-result-formats
-impl Default for PrometheusResultType {
-    fn default() -> PrometheusResultType {
-        PrometheusResultType::Unknown
-    }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(tag = "resultType")]
+pub enum PrometheusResponseData {
+    #[serde(rename = "vector")]
+    Vector { result: Vec<PrometheusVectorResult> },
+    #[serde(rename = "matrix")]
+    Matrix { result: Vec<PrometheusMatrixResult> },
+    #[serde(rename = "scalar")]
+    Scalar { result: Vec<serde_json::Value> },
+    #[serde(rename = "string")]
+    String { result: Vec<serde_json::Value> },
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-struct PrometheusResponseData {
-    result: Vec<PrometheusResult>,
-    #[serde(rename = "resultType")]
-    result_type: PrometheusResultType,
+impl Default for PrometheusResponseData {
+    fn default() -> PrometheusResponseData {
+        PrometheusResponseData::Vector {
+            result: vec![PrometheusVectorResult::default()],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
@@ -260,7 +243,7 @@ where
     pub url: hyper::Uri,
 
     /// A response may be vector, matrix, scalar or string
-    pub result_type: PrometheusResultType,
+    pub result_type: String,
 
     /// The Labels key and value, if any, to match the response
     pub labels: HashMap<String, String>,
@@ -290,16 +273,6 @@ where
         tokio_core: &tokio_core::reactor::Handle,
     ) -> Result<PrometheusTimeSeries<T>, String> {
         //url should be like ("http://localhost:9090/api/v1/query?{}",query)
-        let prom_result_type = match result_type.as_ref() {
-            "vector" => PrometheusResultType::Vector,
-            "matrix" => PrometheusResultType::Matrix,
-            "scalar" => PrometheusResultType::Scalar,
-            "string" => PrometheusResultType::String,
-            _ => PrometheusResultType::Unknown,
-        };
-        if prom_result_type == PrometheusResultType::Unknown {
-            return Err(format!("Unknown ResultType '{}'", result_type));
-        }
         match url.parse::<hyper::Uri>() {
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
@@ -307,7 +280,7 @@ where
                         time_series: TimeSeries::default(),
                         url,
                         pull_interval,
-                        result_type: prom_result_type,
+                        result_type,
                         tokio_core,
                         labels,
                     })
@@ -382,13 +355,35 @@ where
         if res.status != "success" {
             return Ok(0usize);
         }
-        match res.data.result_type {
-            PrometheusResultType::Vector => {
-                if let PrometheusResult::Vector(result) = res.data.result {
-                    for item in res.data.result.iter() {
-                        if self.match_metric_labels(&item.labels) {
-                            // The result array is  [epoch, value, epoch, value]
-                            for item in item.value.chunks(2) {
+        println!("Checking data: {:?}", res.data);
+        match res.data {
+            PrometheusResponseData::Vector { result: results } => {
+                // labeled metrics returned as a 2 items vector AFAIK:
+                // [ {metric: {l: X}, value: [epoch1,sample2]}
+                //   {metric: {l: Y}, value: [epoch3,sample4]} ]
+                for metric_data in results.iter() {
+                    if self.match_metric_labels(&metric_data.labels) {
+                        // The result array is  [epoch, value, epoch, value]
+                        for item in metric_data.value.chunks_exact(2) {
+                            let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
+                            let opt_value = self.serde_json_to_num(&item[1]);
+                            if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+                                self.time_series.push((epoch, value));
+                                loaded_items += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            PrometheusResponseData::Matrix { result: results } => {
+                // labeled metrics returned as a matrix:
+                // [ {metric: {l: X}, value: [[epoch1,sample2],[...]]}
+                //   {metric: {l: Y}, value: [[epoch3,sample4],[...]]} ]
+                for metric_data in results.iter() {
+                    if self.match_metric_labels(&metric_data.labels) {
+                        // The result array is  [epoch, value, epoch, value]
+                        for item_value in &metric_data.values {
+                            for item in item_value.chunks_exact(2) {
                                 let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
                                 let opt_value = self.serde_json_to_num(&item[1]);
                                 if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
@@ -400,7 +395,20 @@ where
                     }
                 }
             }
-            _ => println!("Skipping result_type: {:?}", res.data.result_type),
+            PrometheusResponseData::Scalar { result }
+            | PrometheusResponseData::String { result } => {
+                // unlabeled metrics returned as a 2 items vector
+                // [epoch1,sample2]
+                // XXX: no example found for String.
+                if result.len() > 1 {
+                    let opt_epoch = self.prometheus_epoch_to_u64(&result[0]);
+                    let opt_value = self.serde_json_to_num(&result[1]);
+                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+                        self.time_series.push((epoch, value));
+                        loaded_items += 1;
+                    }
+                }
+            }
         };
         if loaded_items > 0 {
             self.time_series.calculate_stats();
@@ -1081,7 +1089,7 @@ mod tests {
             &core_handle,
         );
         assert_eq!(test0_res.is_ok(), true);
-        let mut test0 = test0_res.unwrap();
+        let test0 = test0_res.unwrap();
         // A json returned by prometheus
         let test0_json = hyper::Chunk::from(
             r#"
@@ -1095,6 +1103,53 @@ mod tests {
         let res0_json = parse_json(&test0_json);
         assert_eq!(res0_json.is_none(), true);
     }
+
+    #[test]
+    fn it_loads_prometheus_scalars() {
+        // Create a Tokio Core to use for testing
+        let core = Core::new().unwrap();
+        let core_handle = &core.handle();
+        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
+            String::from("http://localhost:9090/api/v1/query?query=1"),
+            15,
+            String::from("scalar"),
+            HashMap::new(),
+            &core_handle,
+        );
+        assert_eq!(test0_res.is_ok(), true);
+        let mut test0 = test0_res.unwrap();
+        // A json returned by prometheus
+        let test0_json = hyper::Chunk::from(
+            r#"
+            { "status":"success",
+              "data":{
+                "resultType":"scalar",
+                "result":[1558283674.829,"1"]
+              }
+            }"#,
+        );
+        let res0_json = parse_json(&test0_json);
+        assert_eq!(res0_json.is_some(), true);
+        let res0_load = test0.load_prometheus_response(res0_json.unwrap());
+        // 1 items should have been loaded
+        assert_eq!(res0_load, Ok(1usize));
+        // This json is missing the value after the epoch
+        let test1_json = hyper::Chunk::from(
+            r#"
+            { "status":"success",
+              "data":{
+                "resultType":"scalar",
+                "result":[1558283674.829]
+              }
+            }"#,
+        );
+        let res1_json = parse_json(&test1_json);
+        assert_eq!(res1_json.is_some(), true);
+        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
+        // 1 items should have been loaded
+        assert_eq!(res1_load, Ok(0usize));
+    }
+
     #[test]
     fn it_loads_prometheus_matrix() {
         // Create a Tokio Core to use for testing
@@ -1139,6 +1194,33 @@ mod tests {
         // 2 items should have been loaded, one for Prometheus Server and the
         // other for Prometheus Node Exporter
         assert_eq!(res0_load, Ok(11usize));
+        // This json is missing the value after the epoch
+        let test1_json = hyper::Chunk::from(
+            r#"
+            {
+              "status": "success",
+              "data": {
+                "resultType": "matrix",
+                "result": [
+                  {
+                    "metric": {
+                      "__name__": "node_load1",
+                      "instance": "localhost:9100",
+                      "job": "node_exporter"
+                    },
+                    "values": [
+                        [1558253478]
+                    ]
+                  }
+                ]
+              }
+            }"#,
+        );
+        let res1_json = parse_json(&test1_json);
+        assert_eq!(res1_json.is_some(), true);
+        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
+        // 1 items should have been loaded
+        assert_eq!(res1_load, Ok(0usize));
     }
     #[test]
     fn it_loads_prometheus_vector() {
@@ -1211,6 +1293,33 @@ mod tests {
         // By default the metrics should have been Incremented (ValueCollisionPolicy)
         // We have imported the metric 3 times
         assert_eq!(test0.time_series.as_vec(), vec![(1557571137u64, Some(3.))]);
+        // This json is missing the value after the epoch
+        let test1_json = hyper::Chunk::from(
+            r#"
+            {
+              "status": "success",
+              "data": {
+                "resultType": "vector",
+                "result": [
+                  {
+                    "metric": {
+                      "__name__": "node_load1",
+                      "instance": "localhost:9100",
+                      "job": "node_exporter"
+                    },
+                    "value": [
+                        1558253478
+                    ]
+                  }
+                ]
+              }
+            }"#,
+        );
+        let res1_json = parse_json(&test1_json);
+        assert_eq!(res1_json.is_some(), true);
+        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
+        // 1 items should have been loaded
+        assert_eq!(res1_load, Ok(0usize));
     }
 
     #[test]
@@ -1245,17 +1354,22 @@ mod tests {
         if let Ok(Some(prom_response)) = res1_get {
             // This requires a Prometheus Server running locally
             // XXX: mock this.
+            // Example playload:
+            // {"status":"success","data":{"resultType":"vector","result":[
+            //   {"metric":{"__name__":"up","instance":"localhost:9090","job":"prometheus"},
+            //    "value":[1558270835.417,"1"]},
+            //   {"metric":{"__name__":"up","instance":"localhost:9100","job":"node_exporter"},
+            //    "value":[1558270835.417,"1"]}
+            // ]}}
             assert_eq!(prom_response.status, String::from("success"));
-            assert_eq!(prom_response.data.result_type, PrometheusResultType::Vector);
-            let prom_data_result = prom_response.data.result;
-            assert_ne!(prom_data_result.len(), 0);
-            // PrometheusResult { metric: PrometheusMetricName { name: "up", instance: "localhost:9090", job: "prometheus" }, value: [Number(1557246907.503), String("1")] }
             let mut found_prometheus_job_metric = false;
-            for prom_item in prom_data_result.iter() {
-                if test1.match_metric_labels(&test_labels) {
-                    assert_eq!(prom_item.value.len(), 2);
-                    assert_eq!(prom_item.value[1], String::from("1"));
-                    found_prometheus_job_metric = true;
+            if let PrometheusResponseData::Vector { result: results } = prom_response.data {
+                for prom_item in results.iter() {
+                    if test1.match_metric_labels(&test_labels) {
+                        assert_eq!(prom_item.value.len(), 2);
+                        assert_eq!(prom_item.value[1], String::from("1"));
+                        found_prometheus_job_metric = true;
+                    }
                 }
             }
             assert_eq!(found_prometheus_job_metric, true);
