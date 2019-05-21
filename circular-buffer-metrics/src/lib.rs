@@ -482,7 +482,7 @@ where
     T: Num + Clone + Copy,
 {
     /// The metrics shown at a given time
-    pub metrics: TimeSeries<T>,
+    pub time_series: TimeSeries<T>,
 
     /// A marker line to indicate a reference point, for example for load
     /// to show where the 1 loadavg is, or to show disk capacity
@@ -508,7 +508,7 @@ where
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
-    pub metrics_opengl_vecs: Vec<f32>,
+    pub time_series_opengl_vecs: Vec<f32>,
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
@@ -522,14 +522,12 @@ where
     /// `scale_x_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where -1.0 is 0px (left-most) and
     /// 1.0 is the `display_width` parameter (right-most), i.e. 1024px.
-    pub fn scale_x_to_size(&self, input_value: T, display_width: f32, padding_x: f32) -> f32
-    where
-        T: Num + ToPrimitive,
-    {
+    pub fn scale_x_to_size(&self, input_value: f32, display_width: f32, padding_x: f32) -> f32 {
         let center_x = display_width / 2.;
         let x = padding_x + self.x_offset + input_value.to_f32().unwrap();
         (x - center_x) / center_x
     }
+
     /// `scale_y_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where 1.0 is 0px (top) and -1.0 is
     /// the `display_height` parameter (bottom), i.e. 768px.
@@ -541,8 +539,60 @@ where
         let y = display_height
             - 2. * padding_y
             - (self.chart_height * num_traits::ToPrimitive::to_f32(&input_value).unwrap()
-                / num_traits::ToPrimitive::to_f32(&self.metrics.metric_stats.max).unwrap());
+                / num_traits::ToPrimitive::to_f32(&self.time_series.metric_stats.max).unwrap());
         -(y - center_y) / center_y
+    }
+
+    /// `update_opengl_vecs` Represents the activity levels values in a
+    /// drawable vector for opengl
+    pub fn update_activity_opengl_vecs(
+        &mut self,
+        display_width: f32,
+        display_height: f32,
+        padding_x: f32,
+        padding_y: f32,
+    ) where
+        T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
+    {
+        // Get the opengl representation of the vector
+        let opengl_vecs_len = self.time_series.metrics.len();
+        // Calculate the tick spacing
+        let tick_spacing = if self.metric_reference.is_some() {
+            // Subtract 20% of the horizonal draw space that is allocated for
+            // the Marker Line
+            self.width * 0.2 / self.time_series.metrics_capacity as f32
+        } else {
+            self.width / self.time_series.metrics_capacity as f32
+        };
+        for idx in 0..self.time_series.metrics.len() {
+            let mut x_value = idx as f32 * tick_spacing;
+            // If there is a Marker Line, it takes 10% of the initial horizontal space
+            if self.metric_reference.is_some() {
+                x_value += self.width * 0.1;
+            }
+            let y_value = match self.time_series.metrics[idx].1 {
+                Some(x) => x,
+                None => self.time_series.get_missing_values_fill(),
+            };
+            let scaled_x = self.scale_x_to_size(x_value, display_width, padding_x);
+            let scaled_y = self.scale_y_to_size(y_value, display_height, padding_y);
+            // Adding twice to a vec, could this be made into one operation? Is this slow?
+            // need to transform activity line values from varying levels into scaled [-1, 1]
+            if (idx + 1) * 2 > opengl_vecs_len {
+                self.time_series_opengl_vecs.push(scaled_x);
+                self.time_series_opengl_vecs.push(scaled_y);
+            } else {
+                self.time_series_opengl_vecs[idx * 2] = scaled_x;
+                self.time_series_opengl_vecs[idx * 2 + 1] = scaled_y;
+            }
+        }
+        if let Some(_marker_line_value) = self.metric_reference {
+            //            self.update_marker_line_vecs(
+            //                size,
+            //                self.time_series.metric_stats.max,
+            //                marker_line_value,
+            //            );
+        }
     }
 }
 
@@ -1618,56 +1668,6 @@ mod tests {
 //
 // }
 //
-// `update_opengl_vecs` Represents the activity levels values in a
-// drawable vector for opengl
-// pub fn update_activity_opengl_vecs(&mut self, size: SizeInfo)
-// where T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive
-// {
-// Get the maximum value
-// let mut max_activity_value = T::zero();
-// for idx in 0..self.activity_levels.len() {
-// if self.activity_levels[idx] > max_activity_value {
-// max_activity_value = self.activity_levels[idx];
-// }
-// }
-// if let Some(marker_line_value) = self.marker_line {
-// if marker_line_value > max_activity_value {
-// max_activity_value = marker_line_value;
-// }
-// }
-// Get the opengl representation of the vector
-// let opengl_vecs_len = self.activity_opengl_vecs.len();
-// Calculate the tick spacing
-// let tick_spacing = if self.marker_line.is_some() {
-// Subtract 20% of the horizonal draw space that is allocated for
-// the Marker Line
-// self.width * 0.2 / self.max_activity_ticks as f32
-// } else {
-// self.width / self.max_activity_ticks as f32
-// };
-// for idx in 0..self.activity_levels.len() {
-// let mut x_value = idx as f32 * tick_spacing;
-// If there is a Marker Line, it takes 10% of the initial horizontal space
-// if self.marker_line.is_some() {
-// x_value += self.width * 0.1;
-// }
-// let scaled_x = self.scale_x_to_size(size, x_value);
-// let scaled_y = self.scale_y_to_size(size, self.activity_levels[idx], max_activity_value);
-// Adding twice to a vec, could this be made into one operation? Is this slow?
-// need to transform activity line values from varying levels into scaled [-1, 1]
-// if (idx + 1) * 2 > opengl_vecs_len {
-// self.activity_opengl_vecs.push(scaled_x);
-// self.activity_opengl_vecs.push(scaled_y);
-// } else {
-// self.activity_opengl_vecs[idx * 2] = scaled_x;
-// self.activity_opengl_vecs[idx * 2 + 1] = scaled_y;
-// }
-// }
-// if let Some(marker_line_value) = self.marker_line {
-// self.update_marker_line_vecs(size, max_activity_value, marker_line_value);
-// }
-// }
-// }
 //
 // From https://docs.rs/procinfo/0.4.2/procinfo/struct.LoadAvg.html
 // Load average over the last minute.
