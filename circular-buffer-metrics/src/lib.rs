@@ -482,6 +482,7 @@ where
     T: Num + Clone + Copy,
 {
     /// The metrics shown at a given time
+    /// XXX: This should be a Vec, then the metric_stats need merging
     pub time_series: TimeSeries<T>,
 
     /// A marker line to indicate a reference point, for example for load
@@ -501,9 +502,11 @@ where
     pub tick_spacing: f32,
 
     /// The color of the activity_line
+    /// XXX: This should be a Vec, maybe part of TimeSeries ?
     pub color: (f32, f32, f32),
 
     /// The transparency of the activity line
+    /// XXX: This should be a Vec
     pub alpha: f32,
 
     /// The opengl representation of the activity levels
@@ -512,7 +515,7 @@ where
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
-    pub marker_opengl_vecs: Vec<f32>,
+    pub reference_marker_opengl_vecs: Vec<f32>,
 }
 
 impl<T> TimeSeriesChart<T>
@@ -564,15 +567,17 @@ where
         } else {
             self.width / self.time_series.metrics_capacity as f32
         };
-        for idx in 0..self.time_series.metrics.len() {
+        let idx = 0usize;
+        let missing_values_fill = self.time_series.get_missing_values_fill();
+        for metric in self.time_series.iter() {
             let mut x_value = idx as f32 * tick_spacing;
             // If there is a Marker Line, it takes 10% of the initial horizontal space
             if self.metric_reference.is_some() {
                 x_value += self.width * 0.1;
             }
-            let y_value = match self.time_series.metrics[idx].1 {
+            let y_value = match metric.1 {
                 Some(x) => x,
-                None => self.time_series.get_missing_values_fill(),
+                None => missing_values_fill,
             };
             let scaled_x = self.scale_x_to_size(x_value, display_width, padding_x);
             let scaled_y = self.scale_y_to_size(y_value, display_height, padding_y);
@@ -593,6 +598,67 @@ where
             //                marker_line_value,
             //            );
         }
+    }
+    /// `update_marker_line_vecs` Scales the Marker Line to the current size of
+    /// the displayed points
+    pub fn update_marker_line_vecs(
+        &mut self,
+        display_width: f32,
+        display_height: f32,
+        padding_x: f32,
+        padding_y: f32,
+        marker_line_position: T,
+    ) where
+        T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
+    {
+        // TODO: Add marker_line color
+        // Draw a marker at a fixed position for reference: |>---------<|
+        // The vertexes of the above marker idea can be represented as
+        // connecting lines for these coordinates:
+        // x2,y2                               x6,y2
+        //       x1,y1                   x5,y1
+        // x2,y3                               x6,y3
+        // |-   10%   -|-     80%     -|-   10%   -|
+        //
+        // Calculate X, the triangle width is 10% of the available draw space
+        let x1 = self.scale_x_to_size(self.width / 10f32, display_width, padding_x);
+        let x2 = self.scale_x_to_size(0f32, display_width, padding_x);
+        let x5 = self.scale_x_to_size(self.width - self.width / 10f32, display_width, padding_x);
+        let x6 = self.scale_x_to_size(self.width, display_width, padding_x);
+        //
+        // Calculate X, the triangle height is 10% of the available draw space
+        let y1 = self.scale_y_to_size(marker_line_position, display_height, padding_y);
+        // = y4,y5,y8
+        let y2 = y1
+            - self.scale_y_to_size(self.time_series.metric_stats.max, display_height, padding_y)
+                / 100f32; // = y7
+        let y3 = y1
+            + self.scale_y_to_size(self.time_series.metric_stats.max, display_height, padding_y)
+                / 100f32; // = y7
+                          //
+                          // Left triangle |>
+        self.reference_marker_opengl_vecs[0] = x1;
+        self.reference_marker_opengl_vecs[1] = y1;
+        self.reference_marker_opengl_vecs[2] = x2;
+        self.reference_marker_opengl_vecs[3] = y2;
+        self.reference_marker_opengl_vecs[4] = x2;
+        self.reference_marker_opengl_vecs[5] = y3;
+        //
+        // Line from left triangle to right triangle ---
+        self.reference_marker_opengl_vecs[6] = x1;
+        self.reference_marker_opengl_vecs[7] = y1;
+        self.reference_marker_opengl_vecs[8] = x5;
+        self.reference_marker_opengl_vecs[9] = y1;
+        //
+        // Right triangle <|
+        self.reference_marker_opengl_vecs[10] = x6;
+        self.reference_marker_opengl_vecs[11] = y3;
+        self.reference_marker_opengl_vecs[12] = x6;
+        self.reference_marker_opengl_vecs[13] = y2;
+        //
+        // And loop back to x5,y5
+        self.reference_marker_opengl_vecs[14] = x5;
+        self.reference_marker_opengl_vecs[15] = y1;
     }
 }
 
@@ -648,8 +714,7 @@ where
         self
     }
 
-    /// `calculate_stats` Checks if stats need to be updated for the current
-    /// metrics
+    /// `calculate_stats` Iterates over the metrics and sets the metric_stats
     pub fn calculate_stats(&mut self)
     where
         T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
@@ -678,6 +743,7 @@ where
         self.metric_stats.sum = sum_activity_values;
         self.metric_stats.avg =
             sum_activity_values / num_traits::FromPrimitive::from_usize(filled_metrics).unwrap();
+        self.metric_stats.is_dirty = false;
     }
 
     /// `get_missing_values_fill` uses the MissingValuesPolicy to decide
@@ -686,11 +752,9 @@ where
     where
         T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
     {
-        // XXX: If the values are being shifted, these min/max will be
-        // deceiving, on the other hand, it would just be deceiving for the
-        // first draw after long period of inactivity, which also shows
-        // visually how things are changing.
-        self.calculate_stats();
+        if self.metric_stats.is_dirty {
+            self.calculate_stats();
+        }
         match self.missing_values_policy {
             MissingValuesPolicy::Zero => T::zero(),
             MissingValuesPolicy::One => T::one(),
@@ -736,6 +800,7 @@ where
                 self.active_items += 1;
             }
         }
+        self.metric_stats.is_dirty = true;
         self.last_idx = (self.last_idx + 1) % (self.metrics_capacity + 1);
     }
 
@@ -1428,7 +1493,7 @@ mod tests {
 
     #[test]
     fn it_scales_x_to_display_size() {
-        let test = TimeSeriesChart::default();
+        let test: TimeSeriesChart<f32> = TimeSeriesChart::default();
         // display size: 100 px, input the value: 0, padding_x: 0
         // The value should return should be left-most: -1.0
         let min = test.scale_x_to_size(0f32, 100f32, 0f32);
@@ -1454,7 +1519,7 @@ mod tests {
         // - Chart height
         // - Max Metric collected
         // - Max resolution in pixels
-        test.metrics.metric_stats.max = 100f32;
+        test.time_series.metric_stats.max = 100f32;
         test.chart_height = 100f32;
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be lowest: -1.0
@@ -1613,59 +1678,6 @@ mod tests {
 // pub fn with_marker_line(mut self, value: T) -> ActivityLevels<T> {
 // self.marker_line = Some(value);
 // self
-// }
-//
-// `update_marker_line_vecs` Scales the Marker Line to the current size of
-// the displayed points
-// pub fn update_marker_line_vecs(&mut self, size: SizeInfo, max_activity_value: T,
-// marker_line_position: T) where T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive
-// {
-// TODO: Add marker_line color
-// Draw a marker at a fixed position for reference: |>---------<|
-// The vertexes of the above marker idea can be represented as
-// connecting lines for these coordinates:
-// x2,y2                               x6,y2
-//       x1,y1                   x5,y1
-// x2,y3                               x6,y3
-// |-   10%   -|-     80%     -|-   10%   -|
-//
-// Calculate X, the triangle width is 10% of the available draw space
-// let x1 = self.scale_x_to_size(size, self.width / 10f32);
-// let x2 = self.scale_x_to_size(size, 0f32);
-// let x5 = self.scale_x_to_size(size, self.width - self.width / 10f32);
-// let x6 = self.scale_x_to_size(size, self.width);
-//
-// Calculate X, the triangle height is 10% of the available draw space
-// let y1 = self.scale_y_to_size(size,
-// marker_line_position,
-// max_activity_value); // = y4,y5,y8
-// let y2 = y1 - self.scale_y_to_size(size,max_activity_value,max_activity_value) / 100f32; // = y7
-// let y3 = y1 + self.scale_y_to_size(size,max_activity_value,max_activity_value) / 100f32; // = y7
-//
-// Left triangle |>
-// self.marker_line_vecs[0] = x1;
-// self.marker_line_vecs[1] = y1;
-// self.marker_line_vecs[2] = x2;
-// self.marker_line_vecs[3] = y2;
-// self.marker_line_vecs[4] = x2;
-// self.marker_line_vecs[5] = y3;
-//
-// Line from left triangle to right triangle ---
-// self.marker_line_vecs[6] = x1;
-// self.marker_line_vecs[7] = y1;
-// self.marker_line_vecs[8] = x5;
-// self.marker_line_vecs[9] = y1;
-//
-// Right triangle <|
-// self.marker_line_vecs[10] = x6;
-// self.marker_line_vecs[11] = y3;
-// self.marker_line_vecs[12] = x6;
-// self.marker_line_vecs[13] = y2;
-//
-// And loop back to x5,y5
-// self.marker_line_vecs[14] = x5;
-// self.marker_line_vecs[15] = y1;
-//
 // }
 //
 //
