@@ -482,8 +482,10 @@ where
     T: Num + Clone + Copy,
 {
     /// The metrics shown at a given time
-    /// XXX: This should be a Vec, then the metric_stats need merging
-    pub time_series: TimeSeries<T>,
+    pub series: Vec<TimeSeries<T>>,
+
+    /// The merged stats of the TimeSeries
+    pub stats: TimeSeriesStats<T>,
 
     /// A marker line to indicate a reference point, for example for load
     /// to show where the 1 loadavg is, or to show disk capacity
@@ -511,7 +513,7 @@ where
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
-    pub time_series_opengl_vecs: Vec<f32>,
+    pub series_opengl_vecs: Vec<f32>,
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
@@ -542,7 +544,7 @@ where
         let y = display_height
             - 2. * padding_y
             - (self.chart_height * num_traits::ToPrimitive::to_f32(&input_value).unwrap()
-                / num_traits::ToPrimitive::to_f32(&self.time_series.metric_stats.max).unwrap());
+                / num_traits::ToPrimitive::to_f32(&self.stats.max).unwrap());
         -(y - center_y) / center_y
     }
 
@@ -558,43 +560,54 @@ where
         T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
     {
         // Get the opengl representation of the vector
-        let opengl_vecs_len = self.time_series.metrics.len();
-        // Calculate the tick spacing
-        let tick_spacing = if self.metric_reference.is_some() {
-            // Subtract 20% of the horizonal draw space that is allocated for
-            // the Marker Line
-            self.width * 0.2 / self.time_series.metrics_capacity as f32
-        } else {
-            self.width / self.time_series.metrics_capacity as f32
-        };
-        let idx = 0usize;
-        let missing_values_fill = self.time_series.get_missing_values_fill();
-        for metric in self.time_series.iter() {
-            let mut x_value = idx as f32 * tick_spacing;
-            // If there is a Marker Line, it takes 10% of the initial horizontal space
-            if self.metric_reference.is_some() {
-                x_value += self.width * 0.1;
+        let opengl_vecs_len = self
+            .series
+            .iter()
+            .fold(0usize, |acc, metric| acc + metric.active_items);
+        for series in &mut self.series {
+            if series.metric_stats.is_dirty {
+                series.calculate_stats();
             }
-            let y_value = match metric.1 {
-                Some(x) => x,
-                None => missing_values_fill,
-            };
-            let scaled_x = self.scale_x_to_size(x_value, display_width, padding_x);
-            let scaled_y = self.scale_y_to_size(y_value, display_height, padding_y);
-            // Adding twice to a vec, could this be made into one operation? Is this slow?
-            // need to transform activity line values from varying levels into scaled [-1, 1]
-            if (idx + 1) * 2 > opengl_vecs_len {
-                self.time_series_opengl_vecs.push(scaled_x);
-                self.time_series_opengl_vecs.push(scaled_y);
+        }
+        for series in self.series.iter() {
+            let idx = 0usize;
+            let missing_values_fill = series.get_missing_values_fill();
+            // Calculate the tick spacing
+            let tick_spacing = if self.metric_reference.is_some() {
+                // Subtract 20% of the horizonal draw space that is allocated for
+                // the Marker Line
+                self.width * 0.2 / series.metrics_capacity as f32
             } else {
-                self.time_series_opengl_vecs[idx * 2] = scaled_x;
-                self.time_series_opengl_vecs[idx * 2 + 1] = scaled_y;
+                self.width / series.metrics_capacity as f32
+            };
+            for metric in series.iter() {
+                let mut x_value = idx as f32 * tick_spacing;
+                // If there is a Marker Line, it takes 10% of the initial horizontal space
+                if self.metric_reference.is_some() {
+                    x_value += self.width * 0.1;
+                }
+                let y_value = match metric.1 {
+                    Some(x) => x,
+                    None => missing_values_fill,
+                };
+                let scaled_x = self.scale_x_to_size(x_value, display_width, padding_x);
+                let scaled_y = self.scale_y_to_size(y_value, display_height, padding_y);
+                // Adding twice to a vec, could this be made into one operation? Is this slow?
+                // need to transform activity line values from varying levels into scaled [-1, 1]
+                if (idx + 1) * 2 > opengl_vecs_len {
+                    self.series_opengl_vecs.push(scaled_x);
+                    self.series_opengl_vecs.push(scaled_y);
+                } else {
+                    // XXX: This needs fixing
+                    self.series_opengl_vecs[idx * 2] = scaled_x;
+                    self.series_opengl_vecs[idx * 2 + 1] = scaled_y;
+                }
             }
         }
         if let Some(_marker_line_value) = self.metric_reference {
             //            self.update_marker_line_vecs(
             //                size,
-            //                self.time_series.metric_stats.max,
+            //                self.series.metric_stats.max,
             //                marker_line_value,
             //            );
         }
@@ -629,14 +642,10 @@ where
         // Calculate X, the triangle height is 10% of the available draw space
         let y1 = self.scale_y_to_size(marker_line_position, display_height, padding_y);
         // = y4,y5,y8
-        let y2 = y1
-            - self.scale_y_to_size(self.time_series.metric_stats.max, display_height, padding_y)
-                / 100f32; // = y7
-        let y3 = y1
-            + self.scale_y_to_size(self.time_series.metric_stats.max, display_height, padding_y)
-                / 100f32; // = y7
-                          //
-                          // Left triangle |>
+        let y2 = y1 - self.scale_y_to_size(self.stats.max, display_height, padding_y) / 100f32; // = y7
+        let y3 = y1 + self.scale_y_to_size(self.stats.max, display_height, padding_y) / 100f32; // = y7
+                                                                                                //
+                                                                                                // Left triangle |>
         self.reference_marker_opengl_vecs[0] = x1;
         self.reference_marker_opengl_vecs[1] = y1;
         self.reference_marker_opengl_vecs[2] = x2;
@@ -748,13 +757,10 @@ where
 
     /// `get_missing_values_fill` uses the MissingValuesPolicy to decide
     /// which value to place on empty metric timeslots when drawing
-    pub fn get_missing_values_fill(&mut self) -> T
+    pub fn get_missing_values_fill(&self) -> T
     where
         T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
     {
-        if self.metric_stats.is_dirty {
-            self.calculate_stats();
-        }
         match self.missing_values_policy {
             MissingValuesPolicy::Zero => T::zero(),
             MissingValuesPolicy::One => T::one(),
@@ -1407,7 +1413,7 @@ mod tests {
         assert_eq!(res2_load, Ok(0usize));
         // By default the metrics should have been Incremented (ValueCollisionPolicy)
         // We have imported the metric 3 times
-        assert_eq!(test0.time_series.as_vec(), vec![(1557571137u64, Some(3.))]);
+        assert_eq!(test0.series.as_vec(), vec![(1557571137u64, Some(3.))]);
         // This json is missing the value after the epoch
         let test1_json = hyper::Chunk::from(
             r#"
@@ -1519,7 +1525,7 @@ mod tests {
         // - Chart height
         // - Max Metric collected
         // - Max resolution in pixels
-        test.time_series.metric_stats.max = 100f32;
+        test.series.metric_stats.max = 100f32;
         test.chart_height = 100f32;
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be lowest: -1.0
