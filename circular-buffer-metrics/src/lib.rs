@@ -126,7 +126,7 @@ where
     pub metrics_capacity: usize,
 
     /// Stats for the TimeSeries
-    pub metric_stats: TimeSeriesStats<T>,
+    pub stats: TimeSeriesStats<T>,
 
     /// Useful for records that do not increment but rather are a fixed
     /// or absolute value recorded at a given time
@@ -237,7 +237,7 @@ where
     T: Num + Clone + Copy,
 {
     /// The TimeSeries metrics storage
-    pub time_series: TimeSeries<T>,
+    pub series: TimeSeries<T>,
 
     /// The URL were Prometheus metrics may be acquaired
     pub url: hyper::Uri,
@@ -277,7 +277,7 @@ where
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
                     Ok(PrometheusTimeSeries {
-                        time_series: TimeSeries::default(),
+                        series: TimeSeries::default(),
                         url,
                         pull_interval,
                         result_type,
@@ -345,7 +345,7 @@ where
     }
 
     /// `load_prometheus_response` loads data from PrometheusResponse into
-    /// the internal `time_series`, returns the number of items or an error
+    /// the internal `series`, returns the number of items or an error
     /// string
     pub fn load_prometheus_response(&mut self, res: PrometheusResponse) -> Result<usize, String>
     where
@@ -368,7 +368,7 @@ where
                             let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
                             let opt_value = self.serde_json_to_num(&item[1]);
                             if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                                self.time_series.push((epoch, value));
+                                self.series.push((epoch, value));
                                 loaded_items += 1;
                             }
                         }
@@ -387,7 +387,7 @@ where
                                 let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
                                 let opt_value = self.serde_json_to_num(&item[1]);
                                 if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                                    self.time_series.push((epoch, value));
+                                    self.series.push((epoch, value));
                                     loaded_items += 1;
                                 }
                             }
@@ -404,14 +404,14 @@ where
                     let opt_epoch = self.prometheus_epoch_to_u64(&result[0]);
                     let opt_value = self.serde_json_to_num(&result[1]);
                     if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                        self.time_series.push((epoch, value));
+                        self.series.push((epoch, value));
                         loaded_items += 1;
                     }
                 }
             }
         };
         if loaded_items > 0 {
-            self.time_series.calculate_stats();
+            self.series.calculate_stats();
         }
         Ok(loaded_items)
     }
@@ -468,7 +468,7 @@ where
     where
         L: Num + Copy,
     {
-        self.time_series == other.time_series
+        self.series == other.series
             && self.url == other.url
             && self.pull_interval == other.pull_interval
     }
@@ -565,10 +565,11 @@ where
             .iter()
             .fold(0usize, |acc, metric| acc + metric.active_items);
         for series in &mut self.series {
-            if series.metric_stats.is_dirty {
+            if series.stats.is_dirty {
                 series.calculate_stats();
             }
         }
+        self.calculate_stats();
         for series in self.series.iter() {
             let idx = 0usize;
             let missing_values_fill = series.get_missing_values_fill();
@@ -607,11 +608,45 @@ where
         if let Some(_marker_line_value) = self.metric_reference {
             //            self.update_marker_line_vecs(
             //                size,
-            //                self.series.metric_stats.max,
+            //                self.series.stats.max,
             //                marker_line_value,
             //            );
         }
     }
+
+    /// `calculate_stats` Iterates over the time series stats and merges them.
+    pub fn calculate_stats(&mut self)
+    where
+        T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
+    {
+        // What about negative numbers? Is there a T::min()
+        let mut max_activity_value = T::min_value();
+        let mut min_activity_value = T::max_value();
+        let mut sum_activity_values = T::zero();
+        let mut filled_stats = 0usize;
+        for series in &mut self.series {
+            if series.stats.is_dirty {
+                series.calculate_stats();
+            }
+        }
+        for entry in &self.series {
+            if entry.stats.max > max_activity_value {
+                max_activity_value = entry.stats.max;
+            }
+            if entry.stats.min < min_activity_value {
+                min_activity_value = entry.stats.min;
+            }
+            sum_activity_values = sum_activity_values + entry.stats.sum;
+            filled_stats += 1;
+        }
+        self.stats.max = max_activity_value;
+        self.stats.min = min_activity_value;
+        self.stats.sum = sum_activity_values;
+        self.stats.avg =
+            sum_activity_values / num_traits::FromPrimitive::from_usize(filled_stats).unwrap();
+        self.stats.is_dirty = false;
+    }
+
     /// `update_marker_line_vecs` Scales the Marker Line to the current size of
     /// the displayed points
     pub fn update_marker_line_vecs(
@@ -682,7 +717,7 @@ where
         TimeSeries {
             metrics_capacity: default_capacity,
             metrics: Vec::with_capacity(default_capacity),
-            metric_stats: TimeSeriesStats::default(),
+            stats: TimeSeriesStats::default(),
             collision_policy: ValueCollisionPolicy::default(),
             missing_values_policy: MissingValuesPolicy::default(),
             first_idx: 0,
@@ -723,7 +758,7 @@ where
         self
     }
 
-    /// `calculate_stats` Iterates over the metrics and sets the metric_stats
+    /// `calculate_stats` Iterates over the metrics and sets the stats
     pub fn calculate_stats(&mut self)
     where
         T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
@@ -731,7 +766,7 @@ where
         // Recalculating seems to be necessary because we are constantly
         // moving items out of the Vec<> so our cache can easily get out of
         // sync
-        let mut max_activity_value = T::zero();
+        let mut max_activity_value = T::min_value();
         let mut min_activity_value = T::max_value();
         let mut sum_activity_values = T::zero();
         let mut filled_metrics = 0usize;
@@ -747,12 +782,12 @@ where
                 filled_metrics += 1;
             }
         }
-        self.metric_stats.max = max_activity_value;
-        self.metric_stats.min = min_activity_value;
-        self.metric_stats.sum = sum_activity_values;
-        self.metric_stats.avg =
+        self.stats.max = max_activity_value;
+        self.stats.min = min_activity_value;
+        self.stats.sum = sum_activity_values;
+        self.stats.avg =
             sum_activity_values / num_traits::FromPrimitive::from_usize(filled_metrics).unwrap();
-        self.metric_stats.is_dirty = false;
+        self.stats.is_dirty = false;
     }
 
     /// `get_missing_values_fill` uses the MissingValuesPolicy to decide
@@ -764,11 +799,11 @@ where
         match self.missing_values_policy {
             MissingValuesPolicy::Zero => T::zero(),
             MissingValuesPolicy::One => T::one(),
-            MissingValuesPolicy::Min => self.metric_stats.min,
-            MissingValuesPolicy::Max => self.metric_stats.max,
+            MissingValuesPolicy::Min => self.stats.min,
+            MissingValuesPolicy::Max => self.stats.max,
             MissingValuesPolicy::Last => self.get_last_filled(),
             MissingValuesPolicy::First => self.get_first_filled(),
-            MissingValuesPolicy::Avg => self.metric_stats.avg,
+            MissingValuesPolicy::Avg => self.stats.avg,
             MissingValuesPolicy::Fixed(val) => val,
         }
     }
@@ -806,7 +841,7 @@ where
                 self.active_items += 1;
             }
         }
-        self.metric_stats.is_dirty = true;
+        self.stats.is_dirty = true;
         self.last_idx = (self.last_idx + 1) % (self.metrics_capacity + 1);
     }
 
@@ -1128,6 +1163,13 @@ mod tests {
         test_first.push((2, 1));
         test_avg.push((0, 9));
         test_avg.push((2, 1));
+        test_zero.calculate_stats();
+        test_one.calculate_stats();
+        test_min.calculate_stats();
+        test_max.calculate_stats();
+        test_last.calculate_stats();
+        test_first.calculate_stats();
+        test_avg.calculate_stats();
         assert_eq!(test_zero.get_missing_values_fill(), 0);
         assert_eq!(test_one.get_missing_values_fill(), 1);
         assert_eq!(test_min.get_missing_values_fill(), 1);
@@ -1210,7 +1252,6 @@ mod tests {
             &core_handle,
         );
         assert_eq!(test0_res.is_ok(), true);
-        let test0 = test0_res.unwrap();
         // A json returned by prometheus
         let test0_json = hyper::Chunk::from(
             r#"
@@ -1525,7 +1566,7 @@ mod tests {
         // - Chart height
         // - Max Metric collected
         // - Max resolution in pixels
-        test.series.metric_stats.max = 100f32;
+        test.stats.max = 100f32;
         test.chart_height = 100f32;
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be lowest: -1.0
