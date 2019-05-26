@@ -107,6 +107,16 @@ where
         }
     }
 }
+
+/// `SeriesStats` Trait must be fulfilled by PrometheusTimeSeries and internal
+/// TimeSeries
+pub trait SeriesStats {
+    type Num;
+    fn stats() -> TimeSeriesStats<Self::Num>
+    where
+        Self::Num: Copy + Num;
+}
+
 /// `TimeSeries` contains a vector of tuple (epoch, Option<value>)
 /// The vector behaves as a circular buffer to avoid shifting values.
 /// The circular buffer may be invalidated partially, for example when too much
@@ -239,6 +249,9 @@ where
     /// The TimeSeries metrics storage
     pub series: TimeSeries<T>,
 
+    /// The TimeSeries metrics storage
+    pub response: PrometheusResponse,
+
     /// The URL were Prometheus metrics may be acquaired
     pub url: hyper::Uri,
 
@@ -278,6 +291,7 @@ where
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
                     Ok(PrometheusTimeSeries {
                         series: TimeSeries::default(),
+                        response: PrometheusResponse::default(),
                         url,
                         pull_interval,
                         result_type,
@@ -458,8 +472,8 @@ pub fn parse_json(body: &hyper::Chunk) -> Option<PrometheusResponse> {
         }
     }
 }
-/// Implement PartialEq for PrometheusTimeSeries because we should ignore
-/// tokio_core_handle
+/// Implement PartialEq for PrometheusTimeSeries because the field
+/// tokio_core should be ignored
 impl<'a, L> PartialEq<PrometheusTimeSeries<'a, L>> for PrometheusTimeSeries<'a, L>
 where
     L: Num + Copy,
@@ -619,7 +633,6 @@ where
     where
         T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
     {
-        // What about negative numbers? Is there a T::min()
         let mut max_activity_value = T::min_value();
         let mut min_activity_value = T::max_value();
         let mut sum_activity_values = T::zero();
