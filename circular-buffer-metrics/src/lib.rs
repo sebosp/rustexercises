@@ -110,11 +110,10 @@ where
 
 /// `SeriesStats` Trait must be fulfilled by PrometheusTimeSeries and internal
 /// TimeSeries
-pub trait SeriesStats {
-    type Num;
-    fn stats() -> TimeSeriesStats<Self::Num>
+pub trait SeriesStats<T> {
+    fn stats(&self) -> TimeSeriesStats<T>
     where
-        Self::Num: Copy + Num;
+        T: Copy + Num;
 }
 
 /// `TimeSeries` contains a vector of tuple (epoch, Option<value>)
@@ -171,6 +170,16 @@ where
     pos: usize,
     /// The current item number, to be compared with the active_items
     current_item: usize,
+}
+
+/// `SeriesStats` returns the internal already computed statistics
+impl<T> SeriesStats<T> for TimeSeries<T>
+where
+    T: Num + Clone + Copy,
+{
+    fn stats(&self) -> TimeSeriesStats<T> {
+        self.stats.clone()
+    }
 }
 
 // The below data structures for parsing something like:
@@ -239,6 +248,137 @@ impl Default for PrometheusResponseData {
 pub struct PrometheusResponse {
     data: PrometheusResponseData,
     status: String,
+}
+
+/// `PrometheusResponse` contains several helper methods for dealing with
+/// data inside the Response
+impl PrometheusResponse {
+    /// Transforms an serde_json::Value into an optional u64
+    /// The epoch coming from Prometheus is a float (epoch with millisecond),
+    /// but our internal representation is u64
+    pub fn prometheus_epoch_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
+        if input.is_number() {
+            if let Some(input) = input.as_f64() {
+                return Some(input as u64);
+            }
+        }
+        None
+    }
+}
+/// `PrometheusResponse` Generic methods for Num Trait
+impl<T> PrometheusResponse<T>
+where
+    T: Num + Clone + Copy,
+{
+    /// Transforms an serde_json::Value into an optional T
+    pub fn serde_json_to_num(&self, input: &serde_json::Value) -> Option<T>
+    where
+        T: Num + FromPrimitive + Bounded + ToPrimitive + PartialOrd,
+    {
+        if input.is_string() {
+            if let Some(input) = input.as_str() {
+                if let Ok(value) = T::from_str_radix(input, 10) {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
+}
+
+/// `SeriesStats` computes the Prometheus internal Data
+/// stats
+impl<T> SeriesStats<T> for PrometheusResponse
+where
+    T: Num + Clone + Copy,
+{
+    fn stats(&self) -> TimeSeriesStats<T>
+    where
+        T: Num + Clone + Copy
+    {
+        let mut max_activity_value = T::min_value();
+        let mut min_activity_value = T::max_value();
+        let mut sum_activity_values = T::zero();
+        let mut filled_stats = 0usize;
+        match self.data {
+            PrometheusResponseData::Vector { result: results } => {
+                // labeled metrics returned as a 2 items vector AFAIK:
+                // [ {metric: {l: X}, value: [epoch1,sample2]}
+                //   {metric: {l: Y}, value: [epoch3,sample4]} ]
+                for metric_data in results.iter() {
+                        // The result array is  [epoch, value, epoch, value]
+                        for item in metric_data.value.chunks_exact(2) {
+                            let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
+                            let opt_value = self.serde_json_to_num(&item[1]);
+                            if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+            if entry.stats.max > max_activity_value {
+                max_activity_value = entry.stats.max;
+            }
+            if entry.stats.min < min_activity_value {
+                min_activity_value = entry.stats.min;
+            }
+            sum_activity_values = sum_activity_values + entry.stats.sum;
+            filled_stats += 1;
+                            }
+                        }
+                }
+            }
+            PrometheusResponseData::Matrix { result: results } => {
+                // labeled metrics returned as a matrix:
+                // [ {metric: {l: X}, value: [[epoch1,sample2],[...]]}
+                //   {metric: {l: Y}, value: [[epoch3,sample4],[...]]} ]
+                for metric_data in results.iter() {
+                    if self.match_metric_labels(&metric_data.labels) {
+                        // The result array is  [epoch, value, epoch, value]
+                        for item_value in &metric_data.values {
+                            for item in item_value.chunks_exact(2) {
+                                let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
+                                let opt_value = self.serde_json_to_num(&item[1]);
+                                if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+            if entry.stats.max > max_activity_value {
+                max_activity_value = entry.stats.max;
+            }
+            if entry.stats.min < min_activity_value {
+                min_activity_value = entry.stats.min;
+            }
+            sum_activity_values = sum_activity_values + entry.stats.sum;
+            filled_stats += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            PrometheusResponseData::Scalar { result }
+            | PrometheusResponseData::String { result } => {
+                // unlabeled metrics returned as a 2 items vector
+                // [epoch1,sample2]
+                // XXX: no example found for String.
+                if result.len() > 1 {
+                    let opt_epoch = self.prometheus_epoch_to_u64(&result[0]);
+                    let opt_value = self.serde_json_to_num(&result[1]);
+                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
+            if entry.stats.max > max_activity_value {
+                max_activity_value = entry.stats.max;
+            }
+            if entry.stats.min < min_activity_value {
+                min_activity_value = entry.stats.min;
+            }
+            sum_activity_values = sum_activity_values + entry.stats.sum;
+            filled_stats += 1;
+                    }
+                }
+            }
+        };
+        TimeSeriesStats<T> {
+            max: max_activity_value,
+            min: min_activity_value,
+            sum: sum_activity_values,
+            avg: sum_activity_values / num_traits::FromPrimitive::from_usize(filled_stats).unwrap(),
+            is_dirty: false
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -329,33 +469,6 @@ where
             }
         }
         true
-    }
-
-    /// Transforms an serde_json::Value into an optional T
-    pub fn serde_json_to_num(&self, input: &serde_json::Value) -> Option<T>
-    where
-        T: Num + FromPrimitive + Bounded + ToPrimitive + PartialOrd,
-    {
-        if input.is_string() {
-            if let Some(input) = input.as_str() {
-                if let Ok(value) = T::from_str_radix(input, 10) {
-                    return Some(value);
-                }
-            }
-        }
-        None
-    }
-
-    /// Transforms an serde_json::Value into an optional u64
-    /// The epoch coming from Prometheus is a float (epoch with millisecond),
-    /// but our internal representation is u64
-    pub fn prometheus_epoch_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
-        if input.is_number() {
-            if let Some(input) = input.as_f64() {
-                return Some(input as u64);
-            }
-        }
-        None
     }
 
     /// `load_prometheus_response` loads data from PrometheusResponse into
