@@ -17,43 +17,34 @@
 
 extern crate futures;
 extern crate hyper;
-extern crate num_traits;
 extern crate serde;
 extern crate serde_json;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
 // use crate::term::SizeInfo;
-use num_traits::*;
-use std::collections::HashMap;
 use std::time::UNIX_EPOCH;
 
 #[macro_use]
 extern crate serde_derive;
-use hyper::rt::{Future, Stream};
-use hyper::Client;
+
+pub mod prometheus;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
 /// when drawing the Metric
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum MissingValuesPolicy<T>
-where
-    T: Num + Clone + Copy,
-{
+pub enum MissingValuesPolicy {
     Zero,
     One,
     First,
     Last,
-    Fixed(T),
+    Fixed(f64),
     Avg,
     Max,
     Min,
 }
 
-impl<T> Default for MissingValuesPolicy<T>
-where
-    T: Num + Clone + Copy,
-{
-    fn default() -> MissingValuesPolicy<T> {
+impl Default for MissingValuesPolicy {
+    fn default() -> MissingValuesPolicy {
         MissingValuesPolicy::Zero
     }
 }
@@ -76,44 +67,30 @@ impl Default for ValueCollisionPolicy {
 
 /// `TimeSeriesStats` contains statistics about the current TimeSeries
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct TimeSeriesStats<T>
-where
-    T: Num + Clone + Copy,
-{
-    max: T,
-    min: T,
-    avg: T, // Calculation may lead to overflow
-    first: T,
-    last: T,
+pub struct TimeSeriesStats {
+    max: f64,
+    min: f64,
+    avg: f64, // Calculation may lead to overflow
+    first: f64,
+    last: f64,
     count: usize,
-    sum: T, // May overflow
+    sum: f64, // May overflow
     is_dirty: bool,
 }
 
-impl<T> Default for TimeSeriesStats<T>
-where
-    T: Num + Clone + Copy,
-{
-    fn default() -> TimeSeriesStats<T> {
+impl Default for TimeSeriesStats {
+    fn default() -> TimeSeriesStats {
         TimeSeriesStats {
-            max: T::zero(),
-            min: T::zero(),
-            avg: T::zero(),
-            first: T::zero(),
-            last: T::zero(),
+            max: 0f64,
+            min: 0f64,
+            avg: 0f64,
+            first: 0f64,
+            last: 0f64,
             count: 0usize,
-            sum: T::zero(),
+            sum: 0f64,
             is_dirty: false,
         }
     }
-}
-
-/// `SeriesStats` Trait must be fulfilled by PrometheusTimeSeries and internal
-/// TimeSeries
-pub trait SeriesStats<T> {
-    fn stats(&self) -> TimeSeriesStats<T>
-    where
-        T: Copy + Num;
 }
 
 /// `TimeSeries` contains a vector of tuple (epoch, Option<value>)
@@ -123,19 +100,16 @@ pub trait SeriesStats<T> {
 /// memory rellocation, this is achieved by using two indexes for the first
 /// and last item.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct TimeSeries<T>
-where
-    T: Num + Clone + Copy,
-{
+pub struct TimeSeries {
     /// Capture events through time
     /// Contains one entry per time unit
-    pub metrics: Vec<(u64, Option<T>)>,
+    pub metrics: Vec<(u64, Option<f64>)>,
 
     /// Number of items to store in our metrics vec
     pub metrics_capacity: usize,
 
     /// Stats for the TimeSeries
-    pub stats: TimeSeriesStats<T>,
+    pub stats: TimeSeriesStats,
 
     /// Useful for records that do not increment but rather are a fixed
     /// or absolute value recorded at a given time
@@ -143,7 +117,7 @@ where
 
     /// Missing values can be set to zero
     /// to show where the 1 task per core is
-    pub missing_values_policy: MissingValuesPolicy<T>,
+    pub missing_values_policy: MissingValuesPolicy,
 
     /// The first item in the circular buffer
     pub first_idx: usize,
@@ -160,463 +134,28 @@ where
 /// `IterTimeSeries` provides the Iterator Trait for TimeSeries metrics.
 /// The state for the iteration is held en "pos" field. The "current_item" is
 /// used to determine if further iterations on the circular buffer is needed.
-pub struct IterTimeSeries<'a, T: 'a>
-where
-    T: Num + Clone + Copy,
-{
+pub struct IterTimeSeries<'a> {
     /// The reference to the TimeSeries struct to iterate over.
-    inner: &'a TimeSeries<T>,
+    inner: &'a TimeSeries,
     /// The current position state
     pos: usize,
     /// The current item number, to be compared with the active_items
     current_item: usize,
 }
 
-/// `SeriesStats` returns the internal already computed statistics
-impl<T> SeriesStats<T> for TimeSeries<T>
-where
-    T: Num + Clone + Copy,
-{
-    fn stats(&self) -> TimeSeriesStats<T> {
-        self.stats.clone()
-    }
-}
-
-// The below data structures for parsing something like:
-//  {
-//   "data": {
-//     "result": [
-//       {
-//         "metric": {
-//           "__name__": "up",
-//           "instance": "localhost:9090",
-//           "job": "prometheus"
-//         },
-//         "value": [
-//           1557052757.816,
-//           "1"
-//         ]
-//       },{...}
-//     ],
-//     "resultType": "vector"
-//   },
-//   "status": "success"
-// }
-
-/// `PrometheusMatrixResult` contains Range Vectors, data is stored like this
-/// [[Epoch1, Metric1], [Epoch2, Metric2], ...]
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-pub struct PrometheusMatrixResult {
-    #[serde(rename = "metric")]
-    labels: HashMap<String, String>,
-    values: Vec<Vec<serde_json::Value>>,
-}
-
-/// `PrometheusVectorResult` contains Instant Vectors, data is stored like this
-/// [Epoch1, Metric1, Epoch2, Metric2, ...]
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-pub struct PrometheusVectorResult {
-    #[serde(rename = "metric")]
-    labels: HashMap<String, String>,
-    value: Vec<serde_json::Value>,
-}
-
-/// `PrometheusResponseData` may be one of these types:
-/// https://prometheus.io/docs/prometheus/latest/querying/api/#expression-query-result-formats
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(tag = "resultType")]
-pub enum PrometheusResponseData {
-    #[serde(rename = "vector")]
-    Vector { result: Vec<PrometheusVectorResult> },
-    #[serde(rename = "matrix")]
-    Matrix { result: Vec<PrometheusMatrixResult> },
-    #[serde(rename = "scalar")]
-    Scalar { result: Vec<serde_json::Value> },
-    #[serde(rename = "string")]
-    String { result: Vec<serde_json::Value> },
-}
-
-impl Default for PrometheusResponseData {
-    fn default() -> PrometheusResponseData {
-        PrometheusResponseData::Vector {
-            result: vec![PrometheusVectorResult::default()],
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
-pub struct PrometheusResponse {
-    data: PrometheusResponseData,
-    status: String,
-}
-
-/// `PrometheusResponse` contains several helper methods for dealing with
-/// data inside the Response
-impl PrometheusResponse {
-    /// Transforms an serde_json::Value into an optional u64
-    /// The epoch coming from Prometheus is a float (epoch with millisecond),
-    /// but our internal representation is u64
-    pub fn prometheus_epoch_to_u64(&self, input: &serde_json::Value) -> Option<u64> {
-        if input.is_number() {
-            if let Some(input) = input.as_f64() {
-                return Some(input as u64);
-            }
-        }
-        None
-    }
-}
-/// `PrometheusResponse` Generic methods for Num Trait
-impl<T> PrometheusResponse<T>
-where
-    T: Num + Clone + Copy,
-{
-    /// Transforms an serde_json::Value into an optional T
-    pub fn serde_json_to_num(&self, input: &serde_json::Value) -> Option<T>
-    where
-        T: Num + FromPrimitive + Bounded + ToPrimitive + PartialOrd,
-    {
-        if input.is_string() {
-            if let Some(input) = input.as_str() {
-                if let Ok(value) = T::from_str_radix(input, 10) {
-                    return Some(value);
-                }
-            }
-        }
-        None
-    }
-
-}
-
-/// `SeriesStats` computes the Prometheus internal Data
-/// stats
-impl<T> SeriesStats<T> for PrometheusResponse
-where
-    T: Num + Clone + Copy,
-{
-    fn stats(&self) -> TimeSeriesStats<T>
-    where
-        T: Num + Clone + Copy
-    {
-        let mut max_activity_value = T::min_value();
-        let mut min_activity_value = T::max_value();
-        let mut sum_activity_values = T::zero();
-        let mut filled_stats = 0usize;
-        match self.data {
-            PrometheusResponseData::Vector { result: results } => {
-                // labeled metrics returned as a 2 items vector AFAIK:
-                // [ {metric: {l: X}, value: [epoch1,sample2]}
-                //   {metric: {l: Y}, value: [epoch3,sample4]} ]
-                for metric_data in results.iter() {
-                        // The result array is  [epoch, value, epoch, value]
-                        for item in metric_data.value.chunks_exact(2) {
-                            let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
-                            let opt_value = self.serde_json_to_num(&item[1]);
-                            if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-            if entry.stats.max > max_activity_value {
-                max_activity_value = entry.stats.max;
-            }
-            if entry.stats.min < min_activity_value {
-                min_activity_value = entry.stats.min;
-            }
-            sum_activity_values = sum_activity_values + entry.stats.sum;
-            filled_stats += 1;
-                            }
-                        }
-                }
-            }
-            PrometheusResponseData::Matrix { result: results } => {
-                // labeled metrics returned as a matrix:
-                // [ {metric: {l: X}, value: [[epoch1,sample2],[...]]}
-                //   {metric: {l: Y}, value: [[epoch3,sample4],[...]]} ]
-                for metric_data in results.iter() {
-                    if self.match_metric_labels(&metric_data.labels) {
-                        // The result array is  [epoch, value, epoch, value]
-                        for item_value in &metric_data.values {
-                            for item in item_value.chunks_exact(2) {
-                                let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
-                                let opt_value = self.serde_json_to_num(&item[1]);
-                                if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-            if entry.stats.max > max_activity_value {
-                max_activity_value = entry.stats.max;
-            }
-            if entry.stats.min < min_activity_value {
-                min_activity_value = entry.stats.min;
-            }
-            sum_activity_values = sum_activity_values + entry.stats.sum;
-            filled_stats += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            PrometheusResponseData::Scalar { result }
-            | PrometheusResponseData::String { result } => {
-                // unlabeled metrics returned as a 2 items vector
-                // [epoch1,sample2]
-                // XXX: no example found for String.
-                if result.len() > 1 {
-                    let opt_epoch = self.prometheus_epoch_to_u64(&result[0]);
-                    let opt_value = self.serde_json_to_num(&result[1]);
-                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-            if entry.stats.max > max_activity_value {
-                max_activity_value = entry.stats.max;
-            }
-            if entry.stats.min < min_activity_value {
-                min_activity_value = entry.stats.min;
-            }
-            sum_activity_values = sum_activity_values + entry.stats.sum;
-            filled_stats += 1;
-                    }
-                }
-            }
-        };
-        TimeSeriesStats<T> {
-            max: max_activity_value,
-            min: min_activity_value,
-            sum: sum_activity_values,
-            avg: sum_activity_values / num_traits::FromPrimitive::from_usize(filled_stats).unwrap(),
-            is_dirty: false
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct PrometheusTimeSeries<'a, T>
-where
-    T: Num + Clone + Copy,
-{
-    /// The TimeSeries metrics storage
-    pub series: TimeSeries<T>,
-
-    /// The TimeSeries metrics storage
-    pub response: PrometheusResponse,
-
-    /// The URL were Prometheus metrics may be acquaired
-    pub url: hyper::Uri,
-
-    /// A response may be vector, matrix, scalar or string
-    pub result_type: String,
-
-    /// The Labels key and value, if any, to match the response
-    pub labels: HashMap<String, String>,
-
-    /// The time in secondso to get the metrics from Prometheus
-    /// Shouldn't be faster than the scrape interval for the Target
-    pub pull_interval: usize,
-
-    /// Tokio Core Handle
-    pub tokio_core: &'a tokio_core::reactor::Handle,
-}
-
-impl<'a, T> PrometheusTimeSeries<'a, T>
-where
-    T: Num + Clone + Copy + std::marker::Send,
-{
-    /// `new` returns a new PrometheusTimeSeries. it takes a URL where to load
-    /// the data from and a pull_interval, this should match scrape interval in
-    /// Prometheus Server side to avoid pulling the same values over and over.
-    /// A tokio_core handle must be passed to the constructor to be used for
-    /// asynchronous tasks
-    pub fn new(
-        url: String,
-        pull_interval: usize,
-        result_type: String,
-        labels: HashMap<String, String>,
-        tokio_core: &tokio_core::reactor::Handle,
-    ) -> Result<PrometheusTimeSeries<T>, String> {
-        //url should be like ("http://localhost:9090/api/v1/query?{}",query)
-        match url.parse::<hyper::Uri>() {
-            Ok(url) => {
-                if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
-                    Ok(PrometheusTimeSeries {
-                        series: TimeSeries::default(),
-                        response: PrometheusResponse::default(),
-                        url,
-                        pull_interval,
-                        result_type,
-                        tokio_core,
-                        labels,
-                    })
-                } else {
-                    Err(String::from("Only http is supported."))
-                }
-            }
-            Err(_) => Err(String::from("Invalid URL")),
-        }
-    }
-
-    /// `match_metric_labels` checks the labels in the incoming
-    /// PrometheusResponseData contains the required labels
-    pub fn match_metric_labels(&self, metric_labels: &HashMap<String, String>) -> bool {
-        for (required_label, required_value) in &self.labels {
-            match metric_labels.get(required_label) {
-                Some(return_value) => {
-                    if return_value != required_value {
-                        println!("Required label {} exists but required value: {} does not match existing value: {}", required_label, required_value, return_value);
-                        return false;
-                    } else {
-                        println!(
-                            "Required label {} exists and matches required value",
-                            required_label
-                        );
-                    }
-                }
-                None => {
-                    println!("Required label {} does not exists", required_label);
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    /// `load_prometheus_response` loads data from PrometheusResponse into
-    /// the internal `series`, returns the number of items or an error
-    /// string
-    pub fn load_prometheus_response(&mut self, res: PrometheusResponse) -> Result<usize, String>
-    where
-        T: FromPrimitive + Bounded + ToPrimitive + PartialOrd + std::fmt::Debug,
-    {
-        let mut loaded_items = 0;
-        if res.status != "success" {
-            return Ok(0usize);
-        }
-        println!("Checking data: {:?}", res.data);
-        match res.data {
-            PrometheusResponseData::Vector { result: results } => {
-                // labeled metrics returned as a 2 items vector AFAIK:
-                // [ {metric: {l: X}, value: [epoch1,sample2]}
-                //   {metric: {l: Y}, value: [epoch3,sample4]} ]
-                for metric_data in results.iter() {
-                    if self.match_metric_labels(&metric_data.labels) {
-                        // The result array is  [epoch, value, epoch, value]
-                        for item in metric_data.value.chunks_exact(2) {
-                            let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
-                            let opt_value = self.serde_json_to_num(&item[1]);
-                            if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                                self.series.push((epoch, value));
-                                loaded_items += 1;
-                            }
-                        }
-                    }
-                }
-            }
-            PrometheusResponseData::Matrix { result: results } => {
-                // labeled metrics returned as a matrix:
-                // [ {metric: {l: X}, value: [[epoch1,sample2],[...]]}
-                //   {metric: {l: Y}, value: [[epoch3,sample4],[...]]} ]
-                for metric_data in results.iter() {
-                    if self.match_metric_labels(&metric_data.labels) {
-                        // The result array is  [epoch, value, epoch, value]
-                        for item_value in &metric_data.values {
-                            for item in item_value.chunks_exact(2) {
-                                let opt_epoch = self.prometheus_epoch_to_u64(&item[0]);
-                                let opt_value = self.serde_json_to_num(&item[1]);
-                                if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                                    self.series.push((epoch, value));
-                                    loaded_items += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            PrometheusResponseData::Scalar { result }
-            | PrometheusResponseData::String { result } => {
-                // unlabeled metrics returned as a 2 items vector
-                // [epoch1,sample2]
-                // XXX: no example found for String.
-                if result.len() > 1 {
-                    let opt_epoch = self.prometheus_epoch_to_u64(&result[0]);
-                    let opt_value = self.serde_json_to_num(&result[1]);
-                    if let (Some(epoch), Some(value)) = (opt_epoch, opt_value) {
-                        self.series.push((epoch, value));
-                        loaded_items += 1;
-                    }
-                }
-            }
-        };
-        if loaded_items > 0 {
-            self.series.calculate_stats();
-        }
-        Ok(loaded_items)
-    }
-
-    /// `get_from_prometheus` is an async operation that returns an Optional
-    /// PrometheusResponse, this function uses the internal `tokio_core`'s
-    /// handle which is a runtime provided to the class, the body of the
-    /// response is parsed and returned eventually.
-    pub fn get_from_prometheus<'b>(
-        &mut self,
-    ) -> impl Future<Item = Option<PrometheusResponse>, Error = ()> + 'b {
-        Client::new()
-            .get(self.url.clone())
-            .and_then(|res| {
-                println!("Response: {}", res.status());
-                println!("Headers: {:?}", res.headers());
-                res.into_body()
-                    // A hyper::Body is a Stream of Chunk values. We need a
-                    // non-blocking way to get all the chunks so we can deserialize the response.
-                    // The concat2() function takes the separate body chunks and makes one
-                    // hyper::Chunk value with the contents of the entire body
-                    .concat2()
-                    .and_then(|body| Ok(parse_json(&body)))
-            })
-            .map_err(|err| {
-                println!("Error: {}", err);
-            })
-    }
-}
-
-/// `parse_json` transforms a hyper body chunk into a possible
-/// PrometheusResponse, mostly used for testing
-pub fn parse_json(body: &hyper::Chunk) -> Option<PrometheusResponse> {
-    let prom_res: Result<PrometheusResponse, serde_json::Error> = serde_json::from_slice(&body);
-    // XXX: Figure out how to return the error
-    match prom_res {
-        Ok(v) => {
-            println!("returned JSON: {:?}", v);
-            Some(v)
-        }
-        Err(err) => {
-            println!("Unable to parse JSON: {:?}", err);
-            None
-        }
-    }
-}
-/// Implement PartialEq for PrometheusTimeSeries because the field
-/// tokio_core should be ignored
-impl<'a, L> PartialEq<PrometheusTimeSeries<'a, L>> for PrometheusTimeSeries<'a, L>
-where
-    L: Num + Copy,
-{
-    fn eq(&self, other: &PrometheusTimeSeries<L>) -> bool
-    where
-        L: Num + Copy,
-    {
-        self.series == other.series
-            && self.url == other.url
-            && self.pull_interval == other.pull_interval
-    }
-}
-
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
 #[derive(Default, Debug)]
-pub struct TimeSeriesChart<T>
-where
-    T: Num + Clone + Copy,
-{
+pub struct TimeSeriesChart {
     /// The metrics shown at a given time
-    pub series: Vec<TimeSeries<T>>,
+    pub series: Vec<TimeSeries>,
 
     /// The merged stats of the TimeSeries
-    pub stats: TimeSeriesStats<T>,
+    pub stats: TimeSeriesStats,
 
     /// A marker line to indicate a reference point, for example for load
     /// to show where the 1 loadavg is, or to show disk capacity
-    pub metric_reference: Option<T>,
+    pub metric_reference: Option<f64>,
 
     /// The offset in which the activity line should be drawn
     pub x_offset: f32,
@@ -647,31 +186,24 @@ where
     pub reference_marker_opengl_vecs: Vec<f32>,
 }
 
-impl<T> TimeSeriesChart<T>
-where
-    T: Num + Clone + Copy,
-{
+impl TimeSeriesChart {
     /// `scale_x_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where -1.0 is 0px (left-most) and
     /// 1.0 is the `display_width` parameter (right-most), i.e. 1024px.
     pub fn scale_x_to_size(&self, input_value: f32, display_width: f32, padding_x: f32) -> f32 {
         let center_x = display_width / 2.;
-        let x = padding_x + self.x_offset + input_value.to_f32().unwrap();
+        let x = padding_x + self.x_offset + (input_value as f32);
         (x - center_x) / center_x
     }
 
     /// `scale_y_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where 1.0 is 0px (top) and -1.0 is
     /// the `display_height` parameter (bottom), i.e. 768px.
-    pub fn scale_y_to_size(&self, input_value: T, display_height: f32, padding_y: f32) -> f32
-    where
-        T: Num + ToPrimitive,
-    {
+    pub fn scale_y_to_size(&self, input_value: f64, display_height: f32, padding_y: f32) -> f32 {
         let center_y = display_height / 2.;
         let y = display_height
             - 2. * padding_y
-            - (self.chart_height * num_traits::ToPrimitive::to_f32(&input_value).unwrap()
-                / num_traits::ToPrimitive::to_f32(&self.stats.max).unwrap());
+            - (self.chart_height * (input_value as f32) / self.stats.max as f32);
         -(y - center_y) / center_y
     }
 
@@ -683,9 +215,7 @@ where
         display_height: f32,
         padding_x: f32,
         padding_y: f32,
-    ) where
-        T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
+    ) {
         // Get the opengl representation of the vector
         let opengl_vecs_len = self
             .series
@@ -742,13 +272,10 @@ where
     }
 
     /// `calculate_stats` Iterates over the time series stats and merges them.
-    pub fn calculate_stats(&mut self)
-    where
-        T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
-    {
-        let mut max_activity_value = T::min_value();
-        let mut min_activity_value = T::max_value();
-        let mut sum_activity_values = T::zero();
+    pub fn calculate_stats(&mut self) {
+        let mut max_activity_value = std::f64::MIN;
+        let mut min_activity_value = std::f64::MAX;
+        let mut sum_activity_values = 0f64;
         let mut filled_stats = 0usize;
         for series in &mut self.series {
             if series.stats.is_dirty {
@@ -768,8 +295,7 @@ where
         self.stats.max = max_activity_value;
         self.stats.min = min_activity_value;
         self.stats.sum = sum_activity_values;
-        self.stats.avg =
-            sum_activity_values / num_traits::FromPrimitive::from_usize(filled_stats).unwrap();
+        self.stats.avg = sum_activity_values / filled_stats as f64;
         self.stats.is_dirty = false;
     }
 
@@ -781,10 +307,8 @@ where
         display_height: f32,
         padding_x: f32,
         padding_y: f32,
-        marker_line_position: T,
-    ) where
-        T: Num + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
+        marker_line_position: f64,
+    ) {
         // TODO: Add marker_line color
         // Draw a marker at a fixed position for reference: |>---------<|
         // The vertexes of the above marker idea can be represented as
@@ -832,12 +356,9 @@ where
     }
 }
 
-impl<T> Default for TimeSeries<T>
-where
-    T: Num + Clone + Copy,
-{
+impl Default for TimeSeries {
     /// `new` returns the default
-    fn default() -> TimeSeries<T> {
+    fn default() -> TimeSeries {
         // This leads to 5 mins of metrics to show by default.
         let default_capacity = 300usize;
         TimeSeries {
@@ -853,12 +374,9 @@ where
     }
 }
 
-impl<T> TimeSeries<T>
-where
-    T: Num + Clone + Copy,
-{
+impl TimeSeries {
     /// `with_capacity` builder changes the amount of metrics in the vec
-    pub fn with_capacity(self, n: usize) -> TimeSeries<T> {
+    pub fn with_capacity(self, n: usize) -> TimeSeries {
         let mut new_self = self;
         new_self.metrics = Vec::with_capacity(n);
         new_self.metrics_capacity = n;
@@ -867,7 +385,7 @@ where
 
     /// `with_missing_values_policy` receives a String and returns
     /// a MissingValuesPolicy, TODO: the "Fixed" value is not implemented.
-    pub fn with_missing_values_policy(mut self, policy_type: String) -> TimeSeries<T> {
+    pub fn with_missing_values_policy(mut self, policy_type: String) -> TimeSeries {
         self.missing_values_policy = match policy_type.as_ref() {
             "zero" => MissingValuesPolicy::Zero,
             "one" => MissingValuesPolicy::One,
@@ -885,16 +403,13 @@ where
     }
 
     /// `calculate_stats` Iterates over the metrics and sets the stats
-    pub fn calculate_stats(&mut self)
-    where
-        T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
-    {
+    pub fn calculate_stats(&mut self) {
         // Recalculating seems to be necessary because we are constantly
         // moving items out of the Vec<> so our cache can easily get out of
         // sync
-        let mut max_activity_value = T::min_value();
-        let mut min_activity_value = T::max_value();
-        let mut sum_activity_values = T::zero();
+        let mut max_activity_value = std::f64::MIN;
+        let mut min_activity_value = std::f64::MAX;
+        let mut sum_activity_values = 0f64;
         let mut filled_metrics = 0usize;
         for entry in self.iter() {
             if let Some(metric) = entry.1 {
@@ -911,20 +426,16 @@ where
         self.stats.max = max_activity_value;
         self.stats.min = min_activity_value;
         self.stats.sum = sum_activity_values;
-        self.stats.avg =
-            sum_activity_values / num_traits::FromPrimitive::from_usize(filled_metrics).unwrap();
+        self.stats.avg = sum_activity_values / (filled_metrics as f64);
         self.stats.is_dirty = false;
     }
 
     /// `get_missing_values_fill` uses the MissingValuesPolicy to decide
     /// which value to place on empty metric timeslots when drawing
-    pub fn get_missing_values_fill(&self) -> T
-    where
-        T: Num + Clone + Copy + PartialOrd + Bounded + FromPrimitive,
-    {
+    pub fn get_missing_values_fill(&self) -> f64 {
         match self.missing_values_policy {
-            MissingValuesPolicy::Zero => T::zero(),
-            MissingValuesPolicy::One => T::one(),
+            MissingValuesPolicy::Zero => 0f64,
+            MissingValuesPolicy::One => 1f64,
             MissingValuesPolicy::Min => self.stats.min,
             MissingValuesPolicy::Max => self.stats.max,
             MissingValuesPolicy::Last => self.get_last_filled(),
@@ -936,7 +447,7 @@ where
 
     /// `resolve_metric_collision` ensures the policy for colliding values is
     /// applied.
-    pub fn resolve_metric_collision(&self, existing: T, new: T) -> T {
+    pub fn resolve_metric_collision(&self, existing: f64, new: f64) -> f64 {
         match self.collision_policy {
             ValueCollisionPolicy::Increment => existing + new,
             ValueCollisionPolicy::Overwrite => new,
@@ -946,10 +457,7 @@ where
     }
 
     /// `circular_push` an item to the circular buffer
-    pub fn circular_push(&mut self, input: (u64, Option<T>))
-    where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
+    pub fn circular_push(&mut self, input: (u64, Option<f64>)) {
         if self.metrics.len() < self.metrics_capacity {
             self.metrics.push(input);
             self.active_items += 1;
@@ -973,10 +481,7 @@ where
 
     /// `push` Adds values to the circular buffer adding empty entries for
     /// missing entries, may invalidate the buffer if all data is outdated
-    pub fn push(&mut self, input: (u64, T))
-    where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
+    pub fn push(&mut self, input: (u64, f64)) {
         if !self.metrics.is_empty() {
             let last_idx = if self.last_idx == self.metrics_capacity {
                 self.metrics.len() - 1
@@ -1012,10 +517,7 @@ where
     }
 
     /// `get_last_filled` Returns the last filled entry in the circular buffer
-    pub fn get_last_filled(&self) -> T
-    where
-        T: Clone + Copy,
-    {
+    pub fn get_last_filled(&self) -> f64 {
         let mut idx = if self.last_idx == self.metrics_capacity {
             0
         } else {
@@ -1034,20 +536,17 @@ where
                 break;
             }
         }
-        T::zero()
+        0f64
     }
 
     /// `get_first_filled` Returns the first filled entry in the circular buffer
-    pub fn get_first_filled(&self) -> T
-    where
-        T: Num + Clone + Copy,
-    {
+    pub fn get_first_filled(&self) -> f64 {
         for entry in self.iter() {
             if let Some(metric) = entry.1 {
                 return metric;
             }
         }
-        T::zero()
+        0f64
     }
 
     /// `as_vec` Returns the circular buffer in flat vec format
@@ -1064,24 +563,18 @@ where
     //  ^  v                      # 0
     //  ^                       v # vec full
     //  v                    ^    # 7
-    pub fn as_vec(&self) -> Vec<(u64, Option<T>)>
-    where
-        T: Clone + Copy,
-    {
+    pub fn as_vec(&self) -> Vec<(u64, Option<f64>)> {
         if self.metrics.is_empty() {
             return vec![];
         }
-        let mut res: Vec<(u64, Option<T>)> = Vec::with_capacity(self.metrics_capacity);
+        let mut res: Vec<(u64, Option<f64>)> = Vec::with_capacity(self.metrics_capacity);
         for entry in self.iter() {
             res.push(entry.clone());
         }
         res
     }
 
-    fn push_current_epoch(&mut self, input: T)
-    where
-        T: Num + Clone + Copy + PartialOrd + ToPrimitive + Bounded + FromPrimitive,
-    {
+    fn push_current_epoch(&mut self, input: f64) {
         let now = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1090,10 +583,7 @@ where
     }
 
     // `iter` Returns an Iterator from the current start.
-    fn iter(&self) -> IterTimeSeries<T>
-    where
-        T: Copy + Clone,
-    {
+    fn iter(&self) -> IterTimeSeries {
         IterTimeSeries {
             inner: self,
             pos: self.first_idx,
@@ -1102,11 +592,8 @@ where
     }
 }
 
-impl<'a, T> Iterator for IterTimeSeries<'a, T>
-where
-    T: Num + Clone + Copy,
-{
-    type Item = &'a (u64, Option<T>);
+impl<'a> Iterator for IterTimeSeries<'a> {
+    type Item = &'a (u64, Option<f64>);
     fn next(&mut self) -> Option<Self::Item> {
         if self.inner.metrics.is_empty() || self.current_item == self.inner.active_items {
             return None;
@@ -1121,35 +608,49 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_core::reactor::Core;
 
     #[test]
     fn it_pushes_circular_buffer() {
         // The circular buffer inserts rotating the first and last index
         let mut test = TimeSeries::default().with_capacity(4);
-        test.circular_push((10, Some(0)));
+        test.circular_push((10, Some(0f64)));
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 1);
-        test.circular_push((11, Some(1)));
+        test.circular_push((11, Some(1f64)));
         test.circular_push((12, None));
-        test.circular_push((13, Some(3)));
+        test.circular_push((13, Some(3f64)));
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 4);
         assert_eq!(
             test.metrics,
-            vec![(10, Some(0)), (11, Some(1)), (12, None), (13, Some(3))]
+            vec![
+                (10, Some(0f64)),
+                (11, Some(1f64)),
+                (12, None),
+                (13, Some(3f64))
+            ]
         );
-        test.circular_push((14, Some(4)));
+        test.circular_push((14, Some(4f64)));
         assert_eq!(
             test.metrics,
-            vec![(14, Some(4)), (11, Some(1)), (12, None), (13, Some(3))]
+            vec![
+                (14, Some(4f64)),
+                (11, Some(1f64)),
+                (12, None),
+                (13, Some(3f64))
+            ]
         );
         assert_eq!(test.first_idx, 1);
         assert_eq!(test.last_idx, 0);
-        test.circular_push((15, Some(5)));
+        test.circular_push((15, Some(5f64)));
         assert_eq!(
             test.metrics,
-            vec![(14, Some(4)), (15, Some(5)), (12, None), (13, Some(3))]
+            vec![
+                (14, Some(4f64)),
+                (15, Some(5f64)),
+                (12, None),
+                (13, Some(3f64))
+            ]
         );
         assert_eq!(test.first_idx, 2);
         assert_eq!(test.last_idx, 1);
@@ -1158,14 +659,14 @@ mod tests {
     fn it_gets_last_filled_value() {
         let mut test = TimeSeries::default().with_capacity(4);
         // Some values should be inserted as None
-        test.push((10, 0));
+        test.push((10, 0f64));
         test.circular_push((11, None));
         test.circular_push((12, None));
         test.circular_push((13, None));
-        assert_eq!(test.get_last_filled(), 0);
+        assert_eq!(test.get_last_filled(), 0f64);
         let mut test = TimeSeries::default().with_capacity(4);
         test.circular_push((11, None));
-        test.push((12, 2));
+        test.push((12, 2f64));
     }
     #[test]
     fn it_transforms_to_flat_vec() {
@@ -1173,23 +674,23 @@ mod tests {
         // Some values should be inserted as None
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 0);
-        test.push((10, 0));
+        test.push((10, 0f64));
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 1);
-        test.push((13, 3));
+        test.push((13, 3f64));
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 4);
         assert_eq!(
             test.as_vec(),
-            vec![(10, Some(0)), (11, None), (12, None), (13, Some(3))]
+            vec![(10, Some(0f64)), (11, None), (12, None), (13, Some(3f64))]
         );
-        test.push((14, 4));
+        test.push((14, 4f64));
         // Starting at 11
         test.first_idx = 1;
         test.last_idx = 1;
         assert_eq!(
             test.as_vec(),
-            vec![(11, None), (12, None), (13, Some(3)), (14, Some(4))]
+            vec![(11, None), (12, None), (13, Some(3f64)), (14, Some(4f64))]
         );
         // Only 11
         test.active_items = 1;
@@ -1200,58 +701,68 @@ mod tests {
         test.first_idx = 3;
         test.last_idx = 4;
         test.active_items = 1;
-        assert_eq!(test.as_vec(), vec![(13, Some(3))]);
+        assert_eq!(test.as_vec(), vec![(13, Some(3f64))]);
         // 13, 14
         test.first_idx = 3;
         test.last_idx = 1;
         test.active_items = 2;
-        assert_eq!(test.as_vec(), vec![(13, Some(3)), (14, Some(4))]);
+        assert_eq!(test.as_vec(), vec![(13, Some(3f64)), (14, Some(4f64))]);
     }
     #[test]
     fn it_fills_empty_epochs() {
         let mut test = TimeSeries::default().with_capacity(4);
         // Some values should be inserted as None
-        test.push((10, 0));
-        test.push((13, 3));
+        test.push((10, 0f64));
+        test.push((13, 3f64));
         assert_eq!(
             test.metrics,
-            vec![(10, Some(0)), (11, None), (12, None), (13, Some(3))]
+            vec![(10, Some(0f64)), (11, None), (12, None), (13, Some(3f64))]
         );
         assert_eq!(test.active_items, 4);
         // Test the whole vector is discarded
-        test.push((18, 8));
+        test.push((18, 8f64));
         assert_eq!(test.active_items, 1);
         assert_eq!(
             test.metrics,
-            vec![(18, Some(8)), (11, None), (12, None), (13, Some(3))]
+            vec![(18, Some(8f64)), (11, None), (12, None), (13, Some(3f64))]
         );
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 1);
         assert_eq!(test.active_items, 1);
-        assert_eq!(test.as_vec(), vec![(18, Some(8))]);
-        test.push((20, 0));
+        assert_eq!(test.as_vec(), vec![(18, Some(8f64))]);
+        test.push((20, 0f64));
         assert_eq!(
             test.metrics,
-            vec![(18, Some(8)), (19, None), (20, Some(0)), (13, Some(3))]
+            vec![
+                (18, Some(8f64)),
+                (19, None),
+                (20, Some(0f64)),
+                (13, Some(3f64))
+            ]
         );
         assert_eq!(test.first_idx, 0);
         assert_eq!(test.last_idx, 3);
         assert_eq!(test.active_items, 3);
         assert_eq!(
             test.as_vec(),
-            vec![(18, Some(8)), (19, None), (20, Some(0))]
+            vec![(18, Some(8f64)), (19, None), (20, Some(0f64))]
         );
-        test.push((50, 5));
+        test.push((50, 5f64));
         assert_eq!(
             test.metrics,
             // Many outdated entries
-            vec![(50, Some(5)), (19, None), (20, Some(0)), (13, Some(3))]
+            vec![
+                (50, Some(5f64)),
+                (19, None),
+                (20, Some(0f64)),
+                (13, Some(3f64))
+            ]
         );
-        assert_eq!(test.as_vec(), vec![(50, Some(5))]);
-        test.push((53, 3));
+        assert_eq!(test.as_vec(), vec![(50, Some(5f64))]);
+        test.push((53, 3f64));
         assert_eq!(
             test.metrics,
-            vec![(50, Some(5)), (51, None), (52, None), (53, Some(3))]
+            vec![(50, Some(5f64)), (51, None), (52, None), (53, Some(3f64))]
         );
     }
     #[test]
@@ -1275,20 +786,20 @@ mod tests {
         let mut test_avg = TimeSeries::default()
             .with_capacity(5)
             .with_missing_values_policy("avg".to_string());
-        test_zero.push((0, 9));
-        test_zero.push((2, 1));
-        test_one.push((0, 9));
-        test_one.push((2, 1));
-        test_min.push((0, 9));
-        test_min.push((2, 1));
-        test_max.push((0, 9));
-        test_max.push((2, 1));
-        test_last.push((0, 9));
-        test_last.push((2, 1));
-        test_first.push((0, 9));
-        test_first.push((2, 1));
-        test_avg.push((0, 9));
-        test_avg.push((2, 1));
+        test_zero.push((0, 9f64));
+        test_zero.push((2, 1f64));
+        test_one.push((0, 9f64));
+        test_one.push((2, 1f64));
+        test_min.push((0, 9f64));
+        test_min.push((2, 1f64));
+        test_max.push((0, 9f64));
+        test_max.push((2, 1f64));
+        test_last.push((0, 9f64));
+        test_last.push((2, 1f64));
+        test_first.push((0, 9f64));
+        test_first.push((2, 1f64));
+        test_avg.push((0, 9f64));
+        test_avg.push((2, 1f64));
         test_zero.calculate_stats();
         test_one.calculate_stats();
         test_min.calculate_stats();
@@ -1296,20 +807,20 @@ mod tests {
         test_last.calculate_stats();
         test_first.calculate_stats();
         test_avg.calculate_stats();
-        assert_eq!(test_zero.get_missing_values_fill(), 0);
-        assert_eq!(test_one.get_missing_values_fill(), 1);
-        assert_eq!(test_min.get_missing_values_fill(), 1);
-        assert_eq!(test_max.get_missing_values_fill(), 9);
-        assert_eq!(test_last.get_missing_values_fill(), 1);
-        assert_eq!(test_first.get_missing_values_fill(), 9);
-        assert_eq!(test_avg.get_missing_values_fill(), 5);
+        assert_eq!(test_zero.get_missing_values_fill(), 0f64);
+        assert_eq!(test_one.get_missing_values_fill(), 1f64);
+        assert_eq!(test_min.get_missing_values_fill(), 1f64);
+        assert_eq!(test_max.get_missing_values_fill(), 9f64);
+        assert_eq!(test_last.get_missing_values_fill(), 1f64);
+        assert_eq!(test_first.get_missing_values_fill(), 9f64);
+        assert_eq!(test_avg.get_missing_values_fill(), 5f64);
         // TODO: add Fixed value test
     }
     #[test]
     fn it_iterates_trait() {
         // Iterator Trait
         // Test an empty TimeSeries vec
-        let test0: TimeSeries<i8> = TimeSeries::default().with_capacity(4);
+        let test0: TimeSeries = TimeSeries::default().with_capacity(4);
         let mut iter_test0 = test0.iter();
         assert_eq!(iter_test0.pos, 0);
         assert!(iter_test0.next().is_none());
@@ -1317,9 +828,9 @@ mod tests {
         assert_eq!(iter_test0.pos, 0);
         // Simple test with one item
         let mut test1 = TimeSeries::default().with_capacity(4);
-        test1.circular_push((10, Some(0)));
+        test1.circular_push((10, Some(0f64)));
         let mut iter_test1 = test1.iter();
-        assert_eq!(iter_test1.next(), Some(&(10, Some(0))));
+        assert_eq!(iter_test1.next(), Some(&(10, Some(0f64))));
         assert_eq!(iter_test1.pos, 1);
         assert!(iter_test1.next().is_none());
         assert!(iter_test1.next().is_none());
@@ -1327,346 +838,51 @@ mod tests {
         // Simple test with 3 items, rotated to start first item and 2nd
         // position and last item at 3rd position
         let mut test2 = TimeSeries::default().with_capacity(4);
-        test2.circular_push((10, Some(0)));
-        test2.circular_push((11, Some(1)));
-        test2.circular_push((12, Some(2)));
-        test2.circular_push((13, Some(3)));
+        test2.circular_push((10, Some(0f64)));
+        test2.circular_push((11, Some(1f64)));
+        test2.circular_push((12, Some(2f64)));
+        test2.circular_push((13, Some(3f64)));
         test2.first_idx = 1;
         test2.last_idx = 3;
         assert_eq!(
             test2.metrics,
-            vec![(10, Some(0)), (11, Some(1)), (12, Some(2)), (13, Some(3))]
+            vec![
+                (10, Some(0f64)),
+                (11, Some(1f64)),
+                (12, Some(2f64)),
+                (13, Some(3f64))
+            ]
         );
         let mut iter_test2 = test2.iter();
         assert_eq!(iter_test2.pos, 1);
-        assert_eq!(iter_test2.next(), Some(&(11, Some(1))));
-        assert_eq!(iter_test2.next(), Some(&(12, Some(2))));
+        assert_eq!(iter_test2.next(), Some(&(11, Some(1f64))));
+        assert_eq!(iter_test2.next(), Some(&(12, Some(2f64))));
         assert_eq!(iter_test2.pos, 3);
         // A vec that is completely full
         let mut test3 = TimeSeries::default().with_capacity(4);
-        test3.circular_push((10, Some(0)));
-        test3.circular_push((11, Some(1)));
-        test3.circular_push((12, Some(2)));
-        test3.circular_push((13, Some(3)));
+        test3.circular_push((10, Some(0f64)));
+        test3.circular_push((11, Some(1f64)));
+        test3.circular_push((12, Some(2f64)));
+        test3.circular_push((13, Some(3f64)));
         {
             let mut iter_test3 = test3.iter();
-            assert_eq!(iter_test3.next(), Some(&(10, Some(0))));
-            assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
-            assert_eq!(iter_test3.next(), Some(&(12, Some(2))));
-            assert_eq!(iter_test3.next(), Some(&(13, Some(3))));
+            assert_eq!(iter_test3.next(), Some(&(10, Some(0f64))));
+            assert_eq!(iter_test3.next(), Some(&(11, Some(1f64))));
+            assert_eq!(iter_test3.next(), Some(&(12, Some(2f64))));
+            assert_eq!(iter_test3.next(), Some(&(13, Some(3f64))));
             assert!(iter_test3.next().is_none());
             assert!(iter_test3.next().is_none());
             assert_eq!(iter_test2.pos, 3);
         }
         // After changing the data the idx is recreatehd at 11 as expected
-        test3.circular_push((14, Some(4)));
+        test3.circular_push((14, Some(4f64)));
         let mut iter_test3 = test3.iter();
-        assert_eq!(iter_test3.next(), Some(&(11, Some(1))));
-    }
-
-    #[test]
-    fn it_skips_prometheus_errors() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
-        // This URL has the end time BEFORE the start time
-        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253499&end=1558253479&step=1"),
-            15,
-            String::from("matrix"),
-            HashMap::new(),
-            &core_handle,
-        );
-        assert_eq!(test0_res.is_ok(), true);
-        // A json returned by prometheus
-        let test0_json = hyper::Chunk::from(
-            r#"
-            {
-              "status": "error",
-              "errorType": "bad_data",
-              "error": "end timestamp must not be before start time"
-            }
-            "#,
-        );
-        let res0_json = parse_json(&test0_json);
-        assert_eq!(res0_json.is_none(), true);
-    }
-
-    #[test]
-    fn it_loads_prometheus_scalars() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
-        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("http://localhost:9090/api/v1/query?query=1"),
-            15,
-            String::from("scalar"),
-            HashMap::new(),
-            &core_handle,
-        );
-        assert_eq!(test0_res.is_ok(), true);
-        let mut test0 = test0_res.unwrap();
-        // A json returned by prometheus
-        let test0_json = hyper::Chunk::from(
-            r#"
-            { "status":"success",
-              "data":{
-                "resultType":"scalar",
-                "result":[1558283674.829,"1"]
-              }
-            }"#,
-        );
-        let res0_json = parse_json(&test0_json);
-        assert_eq!(res0_json.is_some(), true);
-        let res0_load = test0.load_prometheus_response(res0_json.unwrap());
-        // 1 items should have been loaded
-        assert_eq!(res0_load, Ok(1usize));
-        // This json is missing the value after the epoch
-        let test1_json = hyper::Chunk::from(
-            r#"
-            { "status":"success",
-              "data":{
-                "resultType":"scalar",
-                "result":[1558283674.829]
-              }
-            }"#,
-        );
-        let res1_json = parse_json(&test1_json);
-        assert_eq!(res1_json.is_some(), true);
-        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
-        // 1 items should have been loaded
-        assert_eq!(res1_load, Ok(0usize));
-    }
-
-    #[test]
-    fn it_loads_prometheus_matrix() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
-        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253469&end=1558253479&step=1"),
-            15,
-            String::from("matrix"),
-            HashMap::new(),
-            &core_handle,
-        );
-        assert_eq!(test0_res.is_ok(), true);
-        let mut test0 = test0_res.unwrap();
-        // A json returned by prometheus
-        let test0_json = hyper::Chunk::from(
-            r#"
-            {
-              "status": "success",
-              "data": {
-                "resultType": "matrix",
-                "result": [
-                  {
-                    "metric": {
-                      "__name__": "node_load1",
-                      "instance": "localhost:9100",
-                      "job": "node_exporter"
-                    },
-                    "values": [
-                        [1558253469,"1.42"],[1558253470,"1.42"],[1558253471,"1.55"],
-                        [1558253472,"1.55"],[1558253473,"1.55"],[1558253474,"1.55"],
-                        [1558253475,"1.55"],[1558253476,"1.55"],[1558253477,"1.55"],
-                        [1558253478,"1.55"],[1558253479,"1.55"]]
-                  }
-                ]
-              }
-            }"#,
-        );
-        let res0_json = parse_json(&test0_json);
-        assert_eq!(res0_json.is_some(), true);
-        let res0_load = test0.load_prometheus_response(res0_json.clone().unwrap());
-        // 2 items should have been loaded, one for Prometheus Server and the
-        // other for Prometheus Node Exporter
-        assert_eq!(res0_load, Ok(11usize));
-        // This json is missing the value after the epoch
-        let test1_json = hyper::Chunk::from(
-            r#"
-            {
-              "status": "success",
-              "data": {
-                "resultType": "matrix",
-                "result": [
-                  {
-                    "metric": {
-                      "__name__": "node_load1",
-                      "instance": "localhost:9100",
-                      "job": "node_exporter"
-                    },
-                    "values": [
-                        [1558253478]
-                    ]
-                  }
-                ]
-              }
-            }"#,
-        );
-        let res1_json = parse_json(&test1_json);
-        assert_eq!(res1_json.is_some(), true);
-        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
-        // 1 items should have been loaded
-        assert_eq!(res1_load, Ok(0usize));
-    }
-    #[test]
-    fn it_loads_prometheus_vector() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
-        let mut metric_labels = HashMap::new();
-        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("http://localhost:9090/api/v1/query?query=up"),
-            15,
-            String::from("vector"),
-            metric_labels.clone(),
-            &core_handle,
-        );
-        assert_eq!(test0_res.is_ok(), true);
-        let mut test0 = test0_res.unwrap();
-        // A json returned by prometheus
-        let test0_json = hyper::Chunk::from(
-            r#"
-            {
-              "status": "success",
-              "data": {
-                "resultType": "vector",
-                "result": [
-                  {
-                    "metric": {
-                      "__name__": "up",
-                      "instance": "localhost:9090",
-                      "job": "prometheus"
-                    },
-                    "value": [
-                      1557571137.732,
-                      "1"
-                    ]
-                  },
-                  {
-                    "metric": {
-                      "__name__": "up",
-                      "instance": "localhost:9100",
-                      "job": "node_exporter"
-                    },
-                    "value": [
-                      1557571137.732,
-                      "1"
-                    ]
-                  }
-                ]
-              }
-            }"#,
-        );
-        let res0_json = parse_json(&test0_json);
-        assert_eq!(res0_json.is_some(), true);
-        let res0_load = test0.load_prometheus_response(res0_json.clone().unwrap());
-        // 2 items should have been loaded, one for Prometheus Server and the
-        // other for Prometheus Node Exporter
-        assert_eq!(res0_load, Ok(2usize));
-
-        // Make the labels match only one instance
-        metric_labels.insert(String::from("job"), String::from("prometheus"));
-        metric_labels.insert(String::from("instance"), String::from("localhost:9090"));
-        test0.labels = metric_labels.clone();
-        let res1_load = test0.load_prometheus_response(res0_json.clone().unwrap());
-        assert_eq!(res1_load, Ok(1usize));
-
-        // Make the labels not match
-        metric_labels.insert(String::from("__name__"), String::from("down"));
-        test0.labels = metric_labels.clone();
-        let res2_load = test0.load_prometheus_response(res0_json.clone().unwrap());
-        assert_eq!(res2_load, Ok(0usize));
-        // By default the metrics should have been Incremented (ValueCollisionPolicy)
-        // We have imported the metric 3 times
-        assert_eq!(test0.series.as_vec(), vec![(1557571137u64, Some(3.))]);
-        // This json is missing the value after the epoch
-        let test1_json = hyper::Chunk::from(
-            r#"
-            {
-              "status": "success",
-              "data": {
-                "resultType": "vector",
-                "result": [
-                  {
-                    "metric": {
-                      "__name__": "node_load1",
-                      "instance": "localhost:9100",
-                      "job": "node_exporter"
-                    },
-                    "value": [
-                        1558253478
-                    ]
-                  }
-                ]
-              }
-            }"#,
-        );
-        let res1_json = parse_json(&test1_json);
-        assert_eq!(res1_json.is_some(), true);
-        let res1_load = test0.load_prometheus_response(res1_json.unwrap());
-        // 1 items should have been loaded
-        assert_eq!(res1_load, Ok(0usize));
-    }
-
-    #[test]
-    fn it_gets_prometheus_metrics() {
-        // Create a Tokio Core to use for testing
-        let mut core = Core::new().unwrap();
-        let mut test_labels = HashMap::new();
-        test_labels.insert(String::from("name"), String::from("up"));
-        test_labels.insert(String::from("job"), String::from("prometheus"));
-        test_labels.insert(String::from("instance"), String::from("localhost:9090"));
-        let core_handle = &core.handle();
-        // Test non plain http error:
-        let test0_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("https://localhost:9090/api/v1/query?query=up"),
-            15,
-            String::from("vector"),
-            test_labels.clone(),
-            &core_handle,
-        );
-        assert_eq!(test0_res, Err(String::from("Only http is supported.")));
-        let test1_res: Result<PrometheusTimeSeries<f32>, String> = PrometheusTimeSeries::new(
-            String::from("http://localhost:9090/api/v1/query?query=up"),
-            15,
-            String::from("vector"),
-            test_labels.clone(),
-            &core_handle,
-        );
-        assert_eq!(test1_res.is_ok(), true);
-        let mut test1 = test1_res.unwrap();
-        let res1_get = core.run(test1.get_from_prometheus());
-        assert_eq!(res1_get.is_ok(), true);
-        if let Ok(Some(prom_response)) = res1_get {
-            // This requires a Prometheus Server running locally
-            // XXX: mock this.
-            // Example playload:
-            // {"status":"success","data":{"resultType":"vector","result":[
-            //   {"metric":{"__name__":"up","instance":"localhost:9090","job":"prometheus"},
-            //    "value":[1558270835.417,"1"]},
-            //   {"metric":{"__name__":"up","instance":"localhost:9100","job":"node_exporter"},
-            //    "value":[1558270835.417,"1"]}
-            // ]}}
-            assert_eq!(prom_response.status, String::from("success"));
-            let mut found_prometheus_job_metric = false;
-            if let PrometheusResponseData::Vector { result: results } = prom_response.data {
-                for prom_item in results.iter() {
-                    if test1.match_metric_labels(&test_labels) {
-                        assert_eq!(prom_item.value.len(), 2);
-                        assert_eq!(prom_item.value[1], String::from("1"));
-                        found_prometheus_job_metric = true;
-                    }
-                }
-            }
-            assert_eq!(found_prometheus_job_metric, true);
-        }
+        assert_eq!(iter_test3.next(), Some(&(11, Some(1f64))));
     }
 
     #[test]
     fn it_scales_x_to_display_size() {
-        let test: TimeSeriesChart<f32> = TimeSeriesChart::default();
+        let test: TimeSeriesChart = TimeSeriesChart::default();
         // display size: 100 px, input the value: 0, padding_x: 0
         // The value should return should be left-most: -1.0
         let min = test.scale_x_to_size(0f32, 100f32, 0f32);
@@ -1692,27 +908,27 @@ mod tests {
         // - Chart height
         // - Max Metric collected
         // - Max resolution in pixels
-        test.stats.max = 100f32;
+        test.stats.max = 100f64;
         test.chart_height = 100f32;
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be lowest: -1.0
         println!("Checking TimeSeries: {:?}", test);
-        let min = test.scale_y_to_size(0f32, 100f32, 0f32);
+        let min = test.scale_y_to_size(0f64, 100f32, 0f32);
         assert_eq!(min, -1.0f32);
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be upper-most: 1.0
-        let max = test.scale_y_to_size(100f32, 100f32, 0f32);
+        let max = test.scale_y_to_size(100f64, 100f32, 0f32);
         assert_eq!(max, 1.0f32);
         // display size: 100 px, input the value: 50, padding_y: 0
         // The value should return should be the center: 0.0
-        let mid = test.scale_y_to_size(50f32, 100f32, 0f32);
+        let mid = test.scale_y_to_size(50f64, 100f32, 0f32);
         assert_eq!(mid, 0.0f32);
         // display size: 100 px, input the value: 50, padding_y: 25
         // The value returned should be upper-most: 1.0
         // In this case, the chart (100px) is bigger than the display,
         // which means some values would have been chopped (anything above
         // 50f32)
-        let mid = test.scale_y_to_size(50f32, 100f32, 25f32);
+        let mid = test.scale_y_to_size(50f64, 100f32, 25f32);
         assert_eq!(mid, 1.0f32);
     }
     // let size = SizeInfo{
