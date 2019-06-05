@@ -1,4 +1,7 @@
 /// `Prometheus HTTP API` data structures
+use hyper::rt::{Future, Stream};
+use hyper::Client;
+use std::collections::HashMap;
 // The below data structures for parsing something like:
 //  {
 //   "data": {
@@ -19,9 +22,6 @@
 //   },
 //   "status": "success"
 // }
-use hyper::rt::{Future, Stream};
-use hyper::Client;
-use std::collections::HashMap;
 /// `HTTPMatrixResult` contains Range Vectors, data is stored like this
 /// [[Epoch1, Metric1], [Epoch2, Metric2], ...]
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
@@ -93,7 +93,7 @@ pub fn serde_json_to_num(input: &serde_json::Value) -> Option<f64> {
     None
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrometheusTimeSeries<'a> {
     /// The TimeSeries metrics storage
     pub series: crate::TimeSeries,
@@ -102,7 +102,8 @@ pub struct PrometheusTimeSeries<'a> {
     pub data: HTTPResponseData,
 
     /// The URL were Prometheus metrics may be acquaired
-    pub url: hyper::Uri,
+    #[serde(skip)]
+    pub url: Option<hyper::Uri>,
 
     /// A response may be vector, matrix, scalar or string
     pub data_type: String,
@@ -115,9 +116,23 @@ pub struct PrometheusTimeSeries<'a> {
     pub pull_interval: usize,
 
     /// Tokio Core Handle
-    pub tokio_core: &'a tokio_core::reactor::Handle,
+    #[serde(skip)]
+    pub tokio_core: Option<&'a tokio_core::reactor::Handle>,
 }
 
+impl<'a> Default for PrometheusTimeSeries<'a> {
+    fn default() -> PrometheusTimeSeries<'a> {
+        PrometheusTimeSeries {
+            series: crate::TimeSeries::default(),
+            data: HTTPResponseData::default(),
+            url: None,
+            pull_interval: 15,
+            data_type: String::from("vector"),
+            tokio_core: None,
+            required_labels: HashMap::new(),
+        }
+    }
+}
 impl<'a> PrometheusTimeSeries<'a> {
     /// `new` returns a new PrometheusTimeSeries. it takes a URL where to load
     /// the data from and a pull_interval, this should match scrape interval in
@@ -138,10 +153,10 @@ impl<'a> PrometheusTimeSeries<'a> {
                     Ok(PrometheusTimeSeries {
                         series: crate::TimeSeries::default(),
                         data: HTTPResponseData::default(),
-                        url,
+                        url: Some(url),
                         pull_interval,
                         data_type,
-                        tokio_core,
+                        tokio_core: Some(tokio_core),
                         required_labels,
                     })
                 } else {
@@ -253,7 +268,7 @@ impl<'a> PrometheusTimeSeries<'a> {
         &mut self,
     ) -> impl Future<Item = Option<HTTPResponse>, Error = ()> + 'b {
         Client::new()
-            .get(self.url.clone())
+            .get(self.url.unwrap().clone())
             .and_then(|res| {
                 println!("Response: {}", res.status());
                 println!("Headers: {:?}", res.headers());
