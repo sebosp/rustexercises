@@ -6,13 +6,18 @@
 //! maintained as two separate indexes. This allows the vector to shrink
 //! and rotate without relocation of memory or shifting of the vector.
 
-// TODO:
-// - Move to the config.yaml
+// IN PROGRESS:
+// -- Use prometheus queries instead of our own aggregation/etc.
 // -- The yaml should drive an array of activity dashboards
+// -- Add step to query (1 second resolution for example)
+// -- Add min/max time to query.
+// -- Group labels into separate colors (find something that does color spacing in rust)
+// -- Move to the config.yaml
+// -- Logging
+// TODO:
 // -- The dashboards should be toggable, some key combination
 // -- When activated on toggle it could blur a portion of the screen
 // -- derive builder
-// -- Use prometheus queries instead of our own aggregation/etc.
 // -- mock the prometheus server and response
 
 extern crate futures;
@@ -26,7 +31,10 @@ use std::time::UNIX_EPOCH;
 
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate log;
 
+pub mod config;
 pub mod prometheus;
 
 /// `MissingValuesPolicy` provides several ways to deal with missing values
@@ -143,39 +151,137 @@ pub struct IterTimeSeries<'a> {
     current_item: usize,
 }
 
+/// `ReferencePointDecoration` draws a fixed point to give a reference point
+/// of what a drawn value may mean
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReferencePointDecoration {
+    /// The value at which to draw the reference point
+    pub value: f64,
+
+    /// hexadecimal color
+    pub color: String,
+
+    /// Transparency
+    pub alpha: f32,
+}
+
+impl Default for ReferencePointDecoration {
+    fn default() -> ReferencePointDecoration {
+        ReferencePointDecoration {
+            value: 1.0,
+            color: String::from("0xff0000"),
+            alpha: 1.0,
+        }
+    }
+}
+
+/// `Decoration` contains several types of decorations to add to a chart
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+enum Decoration {
+    #[serde(rename = "reference")]
+    Reference(ReferencePointDecoration),
+    None,
+    // Maybe add Average, threshold coloring (turn line red after a certain
+    // point)
+}
+
+impl Default for Decoration {
+    fn default() -> Decoration {
+        Decoration::None
+    }
+}
+
+/// `ManualTimeSeries` is a 2D struct from top left being 0,0
+/// and bottom right being display limits in pixels
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ManualTimeSeries {
+    /// The name of the ManualTimeSeries
+    pub name: String,
+
+    /// The TimeSeries that contains the data
+    pub series: TimeSeries,
+
+    /// The capacity (amount of entries to store)
+    /// XXX: default to 5 minutes
+    pub capacity: usize,
+
+    /// The granularity to store, XXX: default to 1 second
+    pub granularity: u64,
+}
+
+/// `TimeSeriesSource` contains several types of time series that can be extended
+/// with drawable data
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "source")]
+pub enum TimeSeriesSource<'a> {
+    #[serde(rename = "prometheus")]
+    PrometheusTimeSeries(prometheus::PrometheusTimeSeries<'a>),
+    #[serde(rename = "alacritty_input")]
+    AlacrittyInput(ManualTimeSeries),
+    #[serde(rename = "alacritty_output")]
+    AlacrittyOutput(ManualTimeSeries),
+}
+
+impl<'a> Default for TimeSeriesSource<'a> {
+    fn default() -> TimeSeriesSource<'a> {
+        TimeSeriesSource::AlacrittyInput(ManualTimeSeries::default())
+    }
+}
+
+impl<'a> TimeSeriesSource<'a> {
+    fn into(self) -> TimeSeries {
+        match self {
+            TimeSeriesSource::PrometheusTimeSeries(x) => x.series,
+            TimeSeriesSource::AlacrittyInput(x) => x.series,
+            TimeSeriesSource::AlacrittyOutput(x) => x.series,
+        }
+    }
+    fn into_mut(&mut self) -> &mut TimeSeries {
+        match self {
+            TimeSeriesSource::PrometheusTimeSeries(x) => &mut x.series,
+            TimeSeriesSource::AlacrittyInput(x) => &mut x.series,
+            TimeSeriesSource::AlacrittyOutput(x) => &mut x.series,
+        }
+    }
+}
+
+/// `Offset` is a 2D struct from top left being 0,0
+/// and bottom right being display limits in pixels
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+struct Offset {
+    x: f32,
+    y: f32,
+}
+
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
-#[derive(Default, Debug)]
-pub struct TimeSeriesChart {
-    /// The metrics shown at a given time
-    pub series: Vec<TimeSeries>,
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TimeSeriesChart<'a> {
+    /// The name of the Chart
+    pub name: String,
+
+    /// The different sources of the TimeSeries to draw
+    #[serde(rename = "series")]
+    pub sources: Vec<TimeSeriesSource<'a>>,
+
+    /// Decorations such as color, transparency, etc
+    pub decorations: Vec<Decoration>,
 
     /// The merged stats of the TimeSeries
     pub stats: TimeSeriesStats,
 
-    /// A marker line to indicate a reference point, for example for load
-    /// to show where the 1 loadavg is, or to show disk capacity
-    pub metric_reference: Option<f64>,
-
     /// The offset in which the activity line should be drawn
-    pub x_offset: f32,
+    pub offset: Offset,
 
     /// The width of the activity chart/histogram
     pub width: f32,
 
     /// The height of the activity line region
-    pub chart_height: f32,
+    pub height: f32,
 
     /// The spacing between the activity line segments, could be renamed to line length
     pub tick_spacing: f32,
-
-    /// The color of the activity_line
-    /// XXX: This should be a Vec, maybe part of TimeSeries ?
-    pub color: (f32, f32, f32),
-
-    /// The transparency of the activity line
-    /// XXX: This should be a Vec
-    pub alpha: f32,
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
@@ -186,13 +292,13 @@ pub struct TimeSeriesChart {
     pub reference_marker_opengl_vecs: Vec<f32>,
 }
 
-impl TimeSeriesChart {
+impl<'a> TimeSeriesChart<'a> {
     /// `scale_x_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where -1.0 is 0px (left-most) and
     /// 1.0 is the `display_width` parameter (right-most), i.e. 1024px.
     pub fn scale_x_to_size(&self, input_value: f32, display_width: f32, padding_x: f32) -> f32 {
         let center_x = display_width / 2.;
-        let x = padding_x + self.x_offset + (input_value as f32);
+        let x = padding_x + self.offset.x + (input_value as f32);
         (x - center_x) / center_x
     }
 
@@ -203,7 +309,7 @@ impl TimeSeriesChart {
         let center_y = display_height / 2.;
         let y = display_height
             - 2. * padding_y
-            - (self.chart_height * (input_value as f32) / self.stats.max as f32);
+            - (self.height * (input_value as f32) / self.stats.max as f32);
         -(y - center_y) / center_y
     }
 
@@ -217,28 +323,31 @@ impl TimeSeriesChart {
         padding_y: f32,
     ) {
         // Get the opengl representation of the vector
-        let opengl_vecs_len = self
-            .series
-            .iter()
-            .fold(0usize, |acc, metric| acc + metric.active_items);
-        for series in &mut self.series {
-            if series.stats.is_dirty {
-                series.calculate_stats();
+        let opengl_vecs_len =
+            self.sources
+                .iter()
+                .fold(0usize, |acc: usize, source: &TimeSeriesSource| {
+                    let series: TimeSeries = source.into();
+                    acc + series.active_items
+                });
+        for source in &mut self.sources {
+            if source.into().stats.is_dirty {
+                source.into_mut().calculate_stats();
             }
         }
         self.calculate_stats();
-        for series in self.series.iter() {
+        for source in self.sources.iter() {
             let idx = 0usize;
-            let missing_values_fill = series.get_missing_values_fill();
+            let missing_values_fill = source.get_missing_values_fill();
             // Calculate the tick spacing
             let tick_spacing = if self.metric_reference.is_some() {
                 // Subtract 20% of the horizonal draw space that is allocated for
                 // the Marker Line
-                self.width * 0.2 / series.metrics_capacity as f32
+                self.width * 0.2 / source.metrics_capacity as f32
             } else {
-                self.width / series.metrics_capacity as f32
+                self.width / source.metrics_capacity as f32
             };
-            for metric in series.iter() {
+            for metric in source.iter() {
                 let mut x_value = idx as f32 * tick_spacing;
                 // If there is a Marker Line, it takes 10% of the initial horizontal space
                 if self.metric_reference.is_some() {
@@ -265,7 +374,7 @@ impl TimeSeriesChart {
         if let Some(_marker_line_value) = self.metric_reference {
             //            self.update_marker_line_vecs(
             //                size,
-            //                self.series.stats.max,
+            //                self.source.stats.max,
             //                marker_line_value,
             //            );
         }
@@ -277,19 +386,19 @@ impl TimeSeriesChart {
         let mut min_activity_value = std::f64::MAX;
         let mut sum_activity_values = 0f64;
         let mut filled_stats = 0usize;
-        for series in &mut self.series {
-            if series.stats.is_dirty {
-                series.calculate_stats();
+        for source in &mut self.sources {
+            if source.stats.is_dirty {
+                source.calculate_stats();
             }
         }
-        for entry in &self.series {
-            if entry.stats.max > max_activity_value {
-                max_activity_value = entry.stats.max;
+        for source in &self.sources {
+            if source.stats.max > max_activity_value {
+                max_activity_value = source.stats.max;
             }
-            if entry.stats.min < min_activity_value {
-                min_activity_value = entry.stats.min;
+            if source.stats.min < min_activity_value {
+                min_activity_value = source.stats.min;
             }
-            sum_activity_values = sum_activity_values + entry.stats.sum;
+            sum_activity_values += source.stats.sum;
             filled_stats += 1;
         }
         self.stats.max = max_activity_value;
@@ -314,9 +423,9 @@ impl TimeSeriesChart {
         // The vertexes of the above marker idea can be represented as
         // connecting lines for these coordinates:
         // x2,y2                               x6,y2
-        //       x1,y1                   x5,y1
+        // x1,y1                               x5,y1
         // x2,y3                               x6,y3
-        // |-   10%   -|-     80%     -|-   10%   -|
+        // |- 10% -|-         80%         -|- 10% -|
         //
         // Calculate X, the triangle width is 10% of the available draw space
         let x1 = self.scale_x_to_size(self.width / 10f32, display_width, padding_x);
@@ -419,7 +528,7 @@ impl TimeSeries {
                 if metric < min_activity_value {
                     min_activity_value = metric;
                 }
-                sum_activity_values = sum_activity_values + metric;
+                sum_activity_values += metric;
                 filled_metrics += 1;
             }
         }
@@ -909,7 +1018,7 @@ mod tests {
         // - Max Metric collected
         // - Max resolution in pixels
         test.stats.max = 100f64;
-        test.chart_height = 100f32;
+        test.height = 100f32;
         // display size: 100 px, input the value: 100, padding_y: 0
         // The value should return should be lowest: -1.0
         println!("Checking TimeSeries: {:?}", test);
