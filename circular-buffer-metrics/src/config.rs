@@ -8,10 +8,10 @@ static DEFAULT_CHART_CONFIG: &'static str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
 /// Top-level config type
 #[derive(Debug, PartialEq, Deserialize)]
-pub struct Config {
+pub struct Config<'a> {
     /// Initial dimensions
     #[serde(default, deserialize_with = "failure_default")]
-    charts: Option<Vec<crate::TimeSeriesChart>>,
+    charts: Option<Vec<crate::TimeSeriesChart<'a>>>,
 }
 fn failure_default<'a, D, T>(deserializer: D) -> ::std::result::Result<T, D::Error>
 where
@@ -26,12 +26,12 @@ where
         }
     }
 }
-impl Default for Config {
+impl<'a> Default for Config<'a> {
     fn default() -> Self {
         serde_yaml::from_str(DEFAULT_CHART_CONFIG).expect("default config is invalid")
     }
 }
-impl Config {
+impl<'a> Config<'a> {
     fn read_config(path: &PathBuf) -> Result<Config, String> {
         let mut contents = String::new();
         File::open(path)
