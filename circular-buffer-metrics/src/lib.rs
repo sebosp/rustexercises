@@ -163,6 +163,9 @@ pub struct ReferencePointDecoration {
 
     /// Transparency
     pub alpha: f32,
+
+    /// The pixels to separate from the left and right
+    pub padding: Value2D,
 }
 
 impl Default for ReferencePointDecoration {
@@ -171,6 +174,10 @@ impl Default for ReferencePointDecoration {
             value: 1.0,
             color: String::from("0xff0000"),
             alpha: 1.0,
+            padding: Value2D {
+                x: 10f32,
+                y: 0f32, // No top/bottom padding
+            },
         }
     }
 }
@@ -189,6 +196,17 @@ enum Decoration {
 impl Default for Decoration {
     fn default() -> Decoration {
         Decoration::None
+    }
+}
+
+impl Decoration {
+    // The Decoration may need space on the allocation width, without this,
+    // the decoration and the data itself would overlap, these are pixels
+    fn width(self) -> f32 {
+        match self {
+            Decoration::Reference(x) => x.padding.x,
+            Decoration::None => 0f32,
+        }
     }
 }
 
@@ -230,14 +248,14 @@ impl<'a> Default for TimeSeriesSource<'a> {
 }
 
 impl<'a> TimeSeriesSource<'a> {
-    fn into(self) -> TimeSeries {
+    fn into_series(self) -> &'a TimeSeries {
         match self {
-            TimeSeriesSource::PrometheusTimeSeries(x) => x.series,
-            TimeSeriesSource::AlacrittyInput(x) => x.series,
-            TimeSeriesSource::AlacrittyOutput(x) => x.series,
+            TimeSeriesSource::PrometheusTimeSeries(x) => &x.series,
+            TimeSeriesSource::AlacrittyInput(x) => &x.series,
+            TimeSeriesSource::AlacrittyOutput(x) => &x.series,
         }
     }
-    fn into_mut(&mut self) -> &mut TimeSeries {
+    fn into_series_mut(&mut self) -> &mut TimeSeries {
         match self {
             TimeSeriesSource::PrometheusTimeSeries(x) => &mut x.series,
             TimeSeriesSource::AlacrittyInput(x) => &mut x.series,
@@ -246,10 +264,9 @@ impl<'a> TimeSeriesSource<'a> {
     }
 }
 
-/// `Offset` is a 2D struct from top left being 0,0
-/// and bottom right being display limits in pixels
+/// `Value2D` provides X,Y values for several uses, such as offset, padding
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
-struct Offset {
+struct Value2D {
     x: f32,
     y: f32,
 }
@@ -272,7 +289,7 @@ pub struct TimeSeriesChart<'a> {
     pub stats: TimeSeriesStats,
 
     /// The offset in which the activity line should be drawn
-    pub offset: Offset,
+    pub offset: Value2D,
 
     /// The width of the activity chart/histogram
     pub width: f32,
@@ -323,36 +340,29 @@ impl<'a> TimeSeriesChart<'a> {
         padding_y: f32,
     ) {
         // Get the opengl representation of the vector
-        let opengl_vecs_len =
-            self.sources
-                .iter()
-                .fold(0usize, |acc: usize, source: &TimeSeriesSource| {
-                    let series: TimeSeries = source.into();
-                    acc + series.active_items
-                });
+        let opengl_vecs_len = self.sources.iter().fold(0usize, |acc: usize, source| {
+            acc + source.into_series().active_items
+        });
         for source in &mut self.sources {
-            if source.into().stats.is_dirty {
-                source.into_mut().calculate_stats();
+            if source.into_series().stats.is_dirty {
+                source.into_series_mut().calculate_stats();
             }
         }
         self.calculate_stats();
         for source in self.sources.iter() {
             let idx = 0usize;
-            let missing_values_fill = source.get_missing_values_fill();
+            let missing_values_fill = source.into_series().get_missing_values_fill();
             // Calculate the tick spacing
-            let tick_spacing = if self.metric_reference.is_some() {
-                // Subtract 20% of the horizonal draw space that is allocated for
-                // the Marker Line
-                self.width * 0.2 / source.metrics_capacity as f32
-            } else {
-                self.width / source.metrics_capacity as f32
-            };
-            for metric in source.iter() {
-                let mut x_value = idx as f32 * tick_spacing;
+            let mut decorations_space = 0f32;
+            for decoration in self.decorations {
+                decorations_space += decoration.width();
+            }
+            let tick_spacing =
+                (self.width - decorations_space) / source.into_series().metrics_capacity as f32;
+            for metric in source.into_series().iter() {
+                // The decorations width request is on both left and right.
+                let mut x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
                 // If there is a Marker Line, it takes 10% of the initial horizontal space
-                if self.metric_reference.is_some() {
-                    x_value += self.width * 0.1;
-                }
                 let y_value = match metric.1 {
                     Some(x) => x,
                     None => missing_values_fill,
@@ -371,13 +381,13 @@ impl<'a> TimeSeriesChart<'a> {
                 }
             }
         }
-        if let Some(_marker_line_value) = self.metric_reference {
-            //            self.update_marker_line_vecs(
-            //                size,
-            //                self.source.stats.max,
-            //                marker_line_value,
-            //            );
-        }
+        //if let Some(_marker_line_value) = self.metric_reference {
+        //            self.update_marker_line_vecs(
+        //                size,
+        //                self.source.stats.max,
+        //                marker_line_value,
+        //            );
+        //}
     }
 
     /// `calculate_stats` Iterates over the time series stats and merges them.
@@ -387,8 +397,8 @@ impl<'a> TimeSeriesChart<'a> {
         let mut sum_activity_values = 0f64;
         let mut filled_stats = 0usize;
         for source in &mut self.sources {
-            if source.stats.is_dirty {
-                source.calculate_stats();
+            if source.into_series().stats.is_dirty {
+                source.into_series_mut().calculate_stats();
             }
         }
         for source in &self.sources {
