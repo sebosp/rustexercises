@@ -32,6 +32,8 @@ impl<'a> Default for Config<'a> {
     }
 }
 impl<'a> Config<'a> {
+    /// This method is used from config/mod.rs in Alacritty.
+    /// This is a copy for testing
     fn read_config(path: &PathBuf) -> Result<Config, String> {
         let mut contents = String::new();
         File::open(path)

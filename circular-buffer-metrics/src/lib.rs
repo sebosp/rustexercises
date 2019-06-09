@@ -182,10 +182,14 @@ impl Default for ReferencePointDecoration {
     }
 }
 
+impl ReferencePointDecoration {
+    fn opengl(&self) -> Vec<f32> {}
+}
+
 /// `Decoration` contains several types of decorations to add to a chart
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
-enum Decoration {
+pub enum Decoration {
     #[serde(rename = "reference")]
     Reference(ReferencePointDecoration),
     None,
@@ -202,10 +206,17 @@ impl Default for Decoration {
 impl Decoration {
     // The Decoration may need space on the allocation width, without this,
     // the decoration and the data itself would overlap, these are pixels
-    fn width(self) -> f32 {
+    fn width(&self) -> f32 {
         match self {
             Decoration::Reference(x) => x.padding.x,
             Decoration::None => 0f32,
+        }
+    }
+    ///
+    fn opengl_line(&self) -> Vec<f32> {
+        match self {
+            Decoration::Reference(x) => x.opengl_line,
+            Decoration::None => vec![],
         }
     }
 }
@@ -248,11 +259,11 @@ impl<'a> Default for TimeSeriesSource<'a> {
 }
 
 impl<'a> TimeSeriesSource<'a> {
-    fn into_series(self) -> &'a TimeSeries {
+    fn into_series(&self) -> TimeSeries {
         match self {
-            TimeSeriesSource::PrometheusTimeSeries(x) => &x.series,
-            TimeSeriesSource::AlacrittyInput(x) => &x.series,
-            TimeSeriesSource::AlacrittyOutput(x) => &x.series,
+            TimeSeriesSource::PrometheusTimeSeries(x) => x.series.clone(),
+            TimeSeriesSource::AlacrittyInput(x) => x.series.clone(),
+            TimeSeriesSource::AlacrittyOutput(x) => x.series.clone(),
         }
     }
     fn into_series_mut(&mut self) -> &mut TimeSeries {
@@ -266,9 +277,20 @@ impl<'a> TimeSeriesSource<'a> {
 
 /// `Value2D` provides X,Y values for several uses, such as offset, padding
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
-struct Value2D {
+pub struct Value2D {
     x: f32,
     y: f32,
+}
+
+/// `SizeInfo` is a copy of the Alacritty SizeInfo, XXX: remove on merge.
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SizeInfo {
+    width: f32,
+    height: f32,
+    cell_width: f32,
+    cell_height: f32,
+    padding_x: f32,
+    padding_y: f32,
 }
 
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
@@ -313,32 +335,26 @@ impl<'a> TimeSeriesChart<'a> {
     /// `scale_x_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where -1.0 is 0px (left-most) and
     /// 1.0 is the `display_width` parameter (right-most), i.e. 1024px.
-    pub fn scale_x_to_size(&self, input_value: f32, display_width: f32, padding_x: f32) -> f32 {
-        let center_x = display_width / 2.;
-        let x = padding_x + self.offset.x + (input_value as f32);
+    pub fn scale_x_to_size(&self, input_value: f32, display_size: SizeInfo) -> f32 {
+        let center_x = display_size.width / 2.;
+        let x = display_size.padding_x + self.offset.x + (input_value as f32);
         (x - center_x) / center_x
     }
 
     /// `scale_y_to_size` Scales the value from the current display boundary to
     /// a cartesian plane from [-1.0, 1.0], where 1.0 is 0px (top) and -1.0 is
     /// the `display_height` parameter (bottom), i.e. 768px.
-    pub fn scale_y_to_size(&self, input_value: f64, display_height: f32, padding_y: f32) -> f32 {
-        let center_y = display_height / 2.;
-        let y = display_height
-            - 2. * padding_y
+    pub fn scale_y_to_size(&self, input_value: f64, display_size: SizeInfo) -> f32 {
+        let center_y = display_size.height / 2.;
+        let y = display_size.height
+            - 2. * display_size.padding_y
             - (self.height * (input_value as f32) / self.stats.max as f32);
         -(y - center_y) / center_y
     }
 
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
-    pub fn update_activity_opengl_vecs(
-        &mut self,
-        display_width: f32,
-        display_height: f32,
-        padding_x: f32,
-        padding_y: f32,
-    ) {
+    pub fn update_activity_opengl_vecs(&mut self, display_size: SizeInfo) {
         // Get the opengl representation of the vector
         let opengl_vecs_len = self.sources.iter().fold(0usize, |acc: usize, source| {
             acc + source.into_series().active_items
@@ -354,21 +370,21 @@ impl<'a> TimeSeriesChart<'a> {
             let missing_values_fill = source.into_series().get_missing_values_fill();
             // Calculate the tick spacing
             let mut decorations_space = 0f32;
-            for decoration in self.decorations {
+            for decoration in &self.decorations {
                 decorations_space += decoration.width();
             }
             let tick_spacing =
                 (self.width - decorations_space) / source.into_series().metrics_capacity as f32;
             for metric in source.into_series().iter() {
                 // The decorations width request is on both left and right.
-                let mut x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
+                let x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
                 // If there is a Marker Line, it takes 10% of the initial horizontal space
                 let y_value = match metric.1 {
                     Some(x) => x,
                     None => missing_values_fill,
                 };
-                let scaled_x = self.scale_x_to_size(x_value, display_width, padding_x);
-                let scaled_y = self.scale_y_to_size(y_value, display_height, padding_y);
+                let scaled_x = self.scale_x_to_size(x_value, display_size);
+                let scaled_y = self.scale_y_to_size(y_value, display_size);
                 // Adding twice to a vec, could this be made into one operation? Is this slow?
                 // need to transform activity line values from varying levels into scaled [-1, 1]
                 if (idx + 1) * 2 > opengl_vecs_len {
@@ -397,18 +413,18 @@ impl<'a> TimeSeriesChart<'a> {
         let mut sum_activity_values = 0f64;
         let mut filled_stats = 0usize;
         for source in &mut self.sources {
-            if source.into_series().stats.is_dirty {
+            if source.into_series_mut().stats.is_dirty {
                 source.into_series_mut().calculate_stats();
             }
         }
         for source in &self.sources {
-            if source.stats.max > max_activity_value {
-                max_activity_value = source.stats.max;
+            if source.into_series().stats.max > max_activity_value {
+                max_activity_value = source.into_series().stats.max;
             }
-            if source.stats.min < min_activity_value {
-                min_activity_value = source.stats.min;
+            if source.into_series().stats.min < min_activity_value {
+                min_activity_value = source.into_series().stats.min;
             }
-            sum_activity_values += source.stats.sum;
+            sum_activity_values += source.into_series().stats.sum;
             filled_stats += 1;
         }
         self.stats.max = max_activity_value;
@@ -420,58 +436,44 @@ impl<'a> TimeSeriesChart<'a> {
 
     /// `update_marker_line_vecs` Scales the Marker Line to the current size of
     /// the displayed points
-    pub fn update_marker_line_vecs(
-        &mut self,
-        display_width: f32,
-        display_height: f32,
-        padding_x: f32,
-        padding_y: f32,
-        marker_line_position: f64,
-    ) {
+    pub fn update_marker_line_vecs(&mut self, size: SizeInfo, marker_line_position: f64) {
         // TODO: Add marker_line color
-        // Draw a marker at a fixed position for reference: |>---------<|
+        // Draw a marker at a fixed position for reference
         // The vertexes of the above marker idea can be represented as
         // connecting lines for these coordinates:
-        // x2,y2                               x6,y2
-        // x1,y1                               x5,y1
-        // x2,y3                               x6,y3
+        //         |Actual Draw Metric Data|
+        // x1,y2   |                       |   x2,y2
+        // x1,y1 --|-----------------------|-- x2,y1
+        // x1,y3   |                       |   x2,y3
         // |- 10% -|-         80%         -|- 10% -|
         //
         // Calculate X, the triangle width is 10% of the available draw space
-        let x1 = self.scale_x_to_size(self.width / 10f32, display_width, padding_x);
-        let x2 = self.scale_x_to_size(0f32, display_width, padding_x);
-        let x5 = self.scale_x_to_size(self.width - self.width / 10f32, display_width, padding_x);
-        let x6 = self.scale_x_to_size(self.width, display_width, padding_x);
+        let x1 = self.scale_x_to_size(0f32, size);
+        let x2 = self.scale_x_to_size(self.width, size);
         //
         // Calculate X, the triangle height is 10% of the available draw space
-        let y1 = self.scale_y_to_size(marker_line_position, display_height, padding_y);
+        let y1 = self.scale_y_to_size(marker_line_position, size);
         // = y4,y5,y8
-        let y2 = y1 - self.scale_y_to_size(self.stats.max, display_height, padding_y) / 100f32; // = y7
-        let y3 = y1 + self.scale_y_to_size(self.stats.max, display_height, padding_y) / 100f32; // = y7
-                                                                                                //
-                                                                                                // Left triangle |>
-        self.reference_marker_opengl_vecs[0] = x1;
-        self.reference_marker_opengl_vecs[1] = y1;
-        self.reference_marker_opengl_vecs[2] = x2;
+        let y2 = y1 - self.scale_y_to_size(self.stats.max, size) / 100f32; // = y7
+        let y3 = y1 + self.scale_y_to_size(self.stats.max, size) / 100f32; // = y7
+                                                                           //
+                                                                           // Left triangle |>
+        self.reference_marker_opengl_vecs[2] = x1;
         self.reference_marker_opengl_vecs[3] = y2;
-        self.reference_marker_opengl_vecs[4] = x2;
+        self.reference_marker_opengl_vecs[4] = x1;
         self.reference_marker_opengl_vecs[5] = y3;
         //
         // Line from left triangle to right triangle ---
         self.reference_marker_opengl_vecs[6] = x1;
         self.reference_marker_opengl_vecs[7] = y1;
-        self.reference_marker_opengl_vecs[8] = x5;
+        self.reference_marker_opengl_vecs[8] = x2;
         self.reference_marker_opengl_vecs[9] = y1;
         //
         // Right triangle <|
-        self.reference_marker_opengl_vecs[10] = x6;
+        self.reference_marker_opengl_vecs[10] = x2;
         self.reference_marker_opengl_vecs[11] = y3;
-        self.reference_marker_opengl_vecs[12] = x6;
+        self.reference_marker_opengl_vecs[12] = x2;
         self.reference_marker_opengl_vecs[13] = y2;
-        //
-        // And loop back to x5,y5
-        self.reference_marker_opengl_vecs[14] = x5;
-        self.reference_marker_opengl_vecs[15] = y1;
     }
 }
 

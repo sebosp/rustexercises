@@ -268,7 +268,7 @@ impl<'a> PrometheusTimeSeries<'a> {
         &mut self,
     ) -> impl Future<Item = Option<HTTPResponse>, Error = ()> + 'b {
         Client::new()
-            .get(self.url.unwrap().clone())
+            .get(self.url.as_ref().unwrap().clone())
             .and_then(|res| {
                 println!("Response: {}", res.status());
                 println!("Headers: {:?}", res.headers());
