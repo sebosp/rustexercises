@@ -1,5 +1,5 @@
 //! Reading configuration from a yaml file
-use serde::{self, de, Deserialize};
+use log::*;
 use serde_yaml;
 use std::fs::File;
 use std::io::Read;
@@ -9,22 +9,7 @@ static DEFAULT_CHART_CONFIG: &'static str =
 /// Top-level config type
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config<'a> {
-    /// Initial dimensions
-    #[serde(default, deserialize_with = "failure_default")]
-    charts: Option<Vec<crate::TimeSeriesChart<'a>>>,
-}
-fn failure_default<'a, D, T>(deserializer: D) -> ::std::result::Result<T, D::Error>
-where
-    D: de::Deserializer<'a>,
-    T: Deserialize<'a> + Default,
-{
-    match T::deserialize(deserializer) {
-        Ok(value) => Ok(value),
-        Err(err) => {
-            error!("Problem with config: {}; using default value", err);
-            Ok(T::default())
-        }
-    }
+    charts: Vec<super::TimeSeriesChart<'a>>,
 }
 impl<'a> Default for Config<'a> {
     fn default() -> Self {
@@ -34,7 +19,7 @@ impl<'a> Default for Config<'a> {
 impl<'a> Config<'a> {
     /// This method is used from config/mod.rs in Alacritty.
     /// This is a copy for testing
-    fn read_config(path: &PathBuf) -> Result<Config, String> {
+    pub fn read_config(path: &PathBuf) -> Result<Config, String> {
         let mut contents = String::new();
         File::open(path)
             .unwrap()
@@ -43,6 +28,7 @@ impl<'a> Config<'a> {
 
         // Prevent parsing error with empty string
         if contents.is_empty() {
+            info!("Config file is empty, using defaults");
             return Ok(Config::default());
         }
 
