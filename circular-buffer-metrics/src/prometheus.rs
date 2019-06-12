@@ -1,6 +1,7 @@
 /// `Prometheus HTTP API` data structures
 use hyper::rt::{Future, Stream};
 use hyper::Client;
+use log::*;
 use std::collections::HashMap;
 // The below data structures for parsing something like:
 //  {
@@ -95,24 +96,34 @@ pub fn serde_json_to_num(input: &serde_json::Value) -> Option<f64> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrometheusTimeSeries<'a> {
+    /// The Name of this TimesSeries
+    #[serde(default)]
+    pub name: String,
+
     /// The TimeSeries metrics storage
+    #[serde(default)]
     pub series: crate::TimeSeries,
 
     /// The TimeSeries metrics storage
+    #[serde(default)]
     pub data: HTTPResponseData,
 
     /// The URL were Prometheus metrics may be acquaired
     #[serde(skip)]
+    #[serde(default)]
     pub url: Option<hyper::Uri>,
 
     /// A response may be vector, matrix, scalar or string
+    #[serde(default)]
     pub data_type: String,
 
     /// The Labels key and value, if any, to match the response
+    #[serde(default)]
     pub required_labels: HashMap<String, String>,
 
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
+    #[serde(default)]
     pub pull_interval: usize,
 
     /// Tokio Core Handle
@@ -123,6 +134,7 @@ pub struct PrometheusTimeSeries<'a> {
 impl<'a> Default for PrometheusTimeSeries<'a> {
     fn default() -> PrometheusTimeSeries<'a> {
         PrometheusTimeSeries {
+            name: String::from("Unset"),
             series: crate::TimeSeries::default(),
             data: HTTPResponseData::default(),
             url: None,
@@ -151,6 +163,7 @@ impl<'a> PrometheusTimeSeries<'a> {
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
                     Ok(PrometheusTimeSeries {
+                        name: String::from("Unset"),
                         series: crate::TimeSeries::default(),
                         data: HTTPResponseData::default(),
                         url: Some(url),
@@ -174,17 +187,17 @@ impl<'a> PrometheusTimeSeries<'a> {
             match metric_labels.get(required_label) {
                 Some(return_value) => {
                     if return_value != required_value {
-                        println!("Required label {} exists but required value: {} does not match existing value: {}", required_label, required_value, return_value);
+                        error!("Required label {} exists but required value: {} does not match existing value: {}", required_label, required_value, return_value);
                         return false;
                     } else {
-                        println!(
+                        error!(
                             "Required label {} exists and matches required value",
                             required_label
                         );
                     }
                 }
                 None => {
-                    println!("Required label {} does not exists", required_label);
+                    error!("Required label {} does not exists", required_label);
                     return false;
                 }
             }
@@ -200,7 +213,7 @@ impl<'a> PrometheusTimeSeries<'a> {
         if res.status != "success" {
             return Ok(0usize);
         }
-        println!("Checking data: {:?}", res.data);
+        debug!("Checking data: {:?}", res.data);
         match res.data {
             HTTPResponseData::Vector { result: results } => {
                 // labeled metrics returned as a 2 items vector AFAIK:
