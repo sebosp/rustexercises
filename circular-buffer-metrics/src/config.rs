@@ -9,7 +9,7 @@ static DEFAULT_CHART_CONFIG: &'static str =
 /// Top-level config type
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config<'a> {
-    charts: Vec<super::TimeSeriesChart<'a>>,
+    pub charts: Vec<crate::TimeSeriesChart<'a>>,
 }
 impl<'a> Default for Config<'a> {
     fn default() -> Self {
