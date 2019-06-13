@@ -20,6 +20,11 @@
 // -- derive builder
 // -- mock the prometheus server and response
 
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate serde_derive;
+
 extern crate futures;
 extern crate hyper;
 extern crate serde;
@@ -27,12 +32,8 @@ extern crate serde_json;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
 // use crate::term::SizeInfo;
+use log::*;
 use std::time::UNIX_EPOCH;
-
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate log;
 
 pub mod config;
 pub mod prometheus;
@@ -162,19 +163,24 @@ pub struct ReferencePointDecoration {
     /// this makes it fit in the configured space, basically the value
     /// will be incremented by this additional percentage to give more
     /// space to draw the axis tick
+    #[serde(default)]
     pub height_multiplier: f64,
 
     /// hexadecimal color
+    #[serde(default)]
     pub color: String,
 
     /// Transparency
+    #[serde(default)]
     pub alpha: f32,
 
     /// The pixels to separate from the left and right
+    #[serde(default)]
     pub padding: Value2D,
 
     /// The opengl vertices is stored in this vector
     /// The capacity is always 12, see opengl_vertices()
+    #[serde(default)]
     pub opengl_data: Vec<f32>,
 }
 
@@ -213,8 +219,8 @@ impl ReferencePointDecoration {
         self.value - self.value * self.height_multiplier
     }
 
-    /// `update_opengl_vertices` Scales the Marker Line to the current size of
-    /// the displayed points
+    /// `update_opengl_vertices` Draws a marker at a fixed position for
+    /// reference.
     pub fn update_opengl_vertices(
         &mut self,
         display_size: SizeInfo,
@@ -222,9 +228,7 @@ impl ReferencePointDecoration {
         chart_width: f32,
         chart_max_value: f64,
     ) {
-        // TODO: Add marker_line color to opengl
-        // TODO: Call only when max or min have changed in collected metrics
-        // Draw a marker at a fixed position for reference
+        debug!("Starting update_opengl_vertices");
         // The vertexes of the above marker idea can be represented as
         // connecting lines for these coordinates:
         //         |Actual Draw Metric Data|
@@ -232,6 +236,8 @@ impl ReferencePointDecoration {
         // x1,y1 --|-----------------------|-- x2,y1
         // x1,y3   |                       |   x2,y3
         // |- 10% -|-         80%         -|- 10% -|
+        // TODO: Add marker_line color to opengl
+        // TODO: Call only when max or min have changed in collected metrics
         //
         // Calculate X coordinates:
         let x1 = display_size.scale_x(offset.x);
@@ -260,6 +266,7 @@ impl ReferencePointDecoration {
         self.opengl_data[9] = y3;
         self.opengl_data[10] = x2;
         self.opengl_data[11] = y2;
+        debug!("Finished update_opengl_vertices: {:?}", self.opengl_data);
     }
 }
 
@@ -338,26 +345,39 @@ impl Decoration {
 
 /// `ManualTimeSeries` is a 2D struct from top left being 0,0
 /// and bottom right being display limits in pixels
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct ManualTimeSeries {
     /// The name of the ManualTimeSeries
     pub name: String,
 
     /// The TimeSeries that contains the data
+    #[serde(default)]
     pub series: TimeSeries,
 
     /// The capacity (amount of entries to store)
-    /// XXX: default to 5 minutes
+    #[serde(default)]
     pub capacity: usize,
 
-    /// The granularity to store, XXX: default to 1 second
+    /// The granularity to store
+    #[serde(default)]
     pub granularity: u64,
+}
+
+impl Default for ManualTimeSeries {
+    fn default() -> ManualTimeSeries {
+        ManualTimeSeries {
+            name: String::from("unkown"),
+            series: TimeSeries::default(),
+            capacity: 300usize, // 5 minutes
+            granularity: 1,     // 1 second
+        }
+    }
 }
 
 /// `TimeSeriesSource` contains several types of time series that can be extended
 /// with drawable data
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "source")]
+#[serde(tag = "type")]
 pub enum TimeSeriesSource<'a> {
     #[serde(rename = "prometheus")]
     PrometheusTimeSeries(prometheus::PrometheusTimeSeries<'a>),
@@ -388,12 +408,21 @@ impl<'a> TimeSeriesSource<'a> {
             TimeSeriesSource::AlacrittyOutput(x) => &mut x.series,
         }
     }
+    fn name(&self) -> String {
+        match self {
+            TimeSeriesSource::PrometheusTimeSeries(x) => x.name.clone(),
+            TimeSeriesSource::AlacrittyInput(x) => x.name.clone(),
+            TimeSeriesSource::AlacrittyOutput(x) => x.name.clone(),
+        }
+    }
 }
 
 /// `Value2D` provides X,Y values for several uses, such as offset, padding
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub struct Value2D {
+    #[serde(default)]
     x: f32,
+    #[serde(default)]
     y: f32,
 }
 
@@ -442,25 +471,32 @@ pub struct TimeSeriesChart<'a> {
     pub sources: Vec<TimeSeriesSource<'a>>,
 
     /// Decorations such as color, transparency, etc
+    #[serde(default)]
     pub decorations: Vec<Decoration>,
 
     /// The merged stats of the TimeSeries
+    #[serde(default)]
     pub stats: TimeSeriesStats,
 
     /// The offset in which the activity line should be drawn
+    #[serde(default)]
     pub offset: Value2D,
 
     /// The width of the activity chart/histogram
+    #[serde(default)]
     pub width: f32,
 
     /// The height of the activity line region
+    #[serde(default)]
     pub height: f32,
 
     /// The spacing between the activity line segments, could be renamed to line length
+    #[serde(default)]
     pub tick_spacing: f32,
 
     /// The opengl representation of the activity levels
     /// Contains twice as many items because it's x,y
+    #[serde(default)]
     pub series_opengl_vecs: Vec<f32>,
 }
 
@@ -468,26 +504,31 @@ impl<'a> TimeSeriesChart<'a> {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
     pub fn update_activity_opengl_vecs(&mut self, display_size: SizeInfo) {
+        debug!("Chart: Starting update_activity_opengl_vecs");
         // Get the opengl representation of the vector
         let opengl_vecs_len = self.sources.iter().fold(0usize, |acc: usize, source| {
             acc + source.series().active_items
         });
         for source in &mut self.sources {
             if source.series().stats.is_dirty {
+                debug!("{} stats are dirty, needs recalculating", source.name());
                 source.series_mut().calculate_stats();
             }
         }
         self.calculate_stats();
         let mut decorations_space = 0f32;
         for decoration in &self.decorations {
+            debug!("Adding width of decoration: {}", decoration.width());
             decorations_space += decoration.width();
         }
         for source in self.sources.iter() {
             let idx = 0usize;
             let missing_values_fill = source.series().get_missing_values_fill();
+            debug!("Using {} to fill missing values", missing_values_fill);
             // Calculate the tick spacing
             let tick_spacing =
                 (self.width - decorations_space) / source.series().metrics_capacity as f32;
+            debug!("Using tick_spacing {}", tick_spacing);
             for metric in source.series().iter() {
                 // The decorations width request is on both left and right.
                 let x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
@@ -511,6 +552,7 @@ impl<'a> TimeSeriesChart<'a> {
             }
         }
         for decoration in &mut self.decorations {
+            debug!("Updating decoration {:?} vertices", decoration);
             decoration.update_opengl_vertices(
                 display_size,
                 self.offset,
@@ -518,13 +560,6 @@ impl<'a> TimeSeriesChart<'a> {
                 self.stats.max,
             );
         }
-        //if let Some(_marker_line_value) = self.metric_reference {
-        //            self.update_marker_line_vecs(
-        //                size,
-        //                self.source.stats.max,
-        //                marker_line_value,
-        //            );
-        //}
     }
 
     /// `calculate_stats` Iterates over the time series stats and merges them.
@@ -566,6 +601,7 @@ impl<'a> TimeSeriesChart<'a> {
         self.stats.sum = sum_activity_values;
         self.stats.avg = sum_activity_values / filled_stats as f64;
         self.stats.is_dirty = false;
+        debug!("Updated statistics to: {:?}", self.stats);
     }
 }
 
