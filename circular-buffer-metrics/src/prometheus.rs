@@ -109,9 +109,12 @@ pub struct PrometheusTimeSeries<'a> {
     pub data: HTTPResponseData,
 
     /// The URL were Prometheus metrics may be acquaired
-    #[serde(skip)]
     #[serde(default)]
-    pub url: Option<hyper::Uri>,
+    pub source: String,
+
+    /// The URL were Prometheus metrics may be acquaired
+    #[serde(skip)]
+    pub url: hyper::Uri,
 
     /// A response may be vector, matrix, scalar or string
     #[serde(default)]
@@ -137,7 +140,8 @@ impl<'a> Default for PrometheusTimeSeries<'a> {
             name: String::from("Unset"),
             series: crate::TimeSeries::default(),
             data: HTTPResponseData::default(),
-            url: None,
+            source: String::from(""),
+            url: hyper::Uri::default(),
             pull_interval: 15,
             data_type: String::from("vector"),
             tokio_core: None,
@@ -152,34 +156,47 @@ impl<'a> PrometheusTimeSeries<'a> {
     /// A tokio_core handle must be passed to the constructor to be used for
     /// asynchronous tasks
     pub fn new(
-        url: String,
+        url_param: String,
         pull_interval: usize,
         data_type: String,
         required_labels: HashMap<String, String>,
         tokio_core: &tokio_core::reactor::Handle,
     ) -> Result<PrometheusTimeSeries, String> {
-        //url should be like ("http://localhost:9090/api/v1/query?{}",query)
-        match url.parse::<hyper::Uri>() {
-            Ok(url) => {
-                if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
-                    Ok(PrometheusTimeSeries {
-                        name: String::from("Unset"),
-                        series: crate::TimeSeries::default(),
-                        data: HTTPResponseData::default(),
-                        url: Some(url),
-                        pull_interval,
-                        data_type,
-                        tokio_core: Some(tokio_core),
-                        required_labels,
-                    })
-                } else {
-                    Err(String::from("Only http is supported."))
-                }
-            }
-            Err(_) => Err(String::from("Invalid URL")),
+        let mut res = PrometheusTimeSeries {
+            name: String::from("Unset"),
+            series: crate::TimeSeries::default(),
+            data: HTTPResponseData::default(),
+            source: url_param,
+            url: hyper::Uri::default(),
+            pull_interval,
+            data_type,
+            tokio_core: Some(tokio_core),
+            required_labels,
+        };
+        match res.set_url() {
+            Ok(()) => Ok(res),
+            Err(err) => Err(err),
         }
     }
 
+    /// `set_url` loads self.source into a hyper::Uri
+    pub fn set_url(&mut self) -> Result<(), String> {
+        //url should be like ("http://localhost:9090/api/v1/query?{}",query)
+        match self.source.parse::<hyper::Uri>() {
+            Ok(url) => {
+                if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
+                    Ok(())
+                } else {
+                    error!("Only HTTP protocol is supported");
+                    Err(format!("Unsupported protocol: {:?}", url.scheme_part()))
+                }
+            }
+            Err(err) => {
+                error!("Unable to parse url: {}", err);
+                Err(format!("Unable to parse URL: {:?}", err))
+            }
+        }
+    }
     /// `match_metric_labels` checks the labels in the incoming
     /// PrometheusData contains the required labels
     pub fn match_metric_labels(&self, metric_labels: &HashMap<String, String>) -> bool {
@@ -281,10 +298,10 @@ impl<'a> PrometheusTimeSeries<'a> {
         &mut self,
     ) -> impl Future<Item = Option<HTTPResponse>, Error = ()> + 'b {
         Client::new()
-            .get(self.url.as_ref().unwrap().clone())
+            .get(self.url.clone())
             .and_then(|res| {
-                println!("Response: {}", res.status());
-                println!("Headers: {:?}", res.headers());
+                info!("Response: {}", res.status());
+                debug!("Headers: {:?}", res.headers());
                 res.into_body()
                     // A hyper::Body is a Stream of Chunk values. We need a
                     // non-blocking way to get all the chunks so we can deserialize the response.
@@ -294,7 +311,7 @@ impl<'a> PrometheusTimeSeries<'a> {
                     .and_then(|body| Ok(parse_json(&body)))
             })
             .map_err(|err| {
-                println!("Error: {}", err);
+                error!("Error: {}", err);
             })
     }
 }
