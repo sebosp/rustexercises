@@ -2,7 +2,9 @@
 use hyper::rt::{Future, Stream};
 use hyper::Client;
 use log::*;
+use percent_encoding::{utf8_percent_encode, DEFAULT_ENCODE_SET};
 use std::collections::HashMap;
+use std::time::UNIX_EPOCH;
 // The below data structures for parsing something like:
 //  {
 //   "data": {
@@ -122,11 +124,13 @@ pub struct PrometheusTimeSeries<'a> {
 
     /// The Labels key and value, if any, to match the response
     #[serde(default)]
+    #[serde(rename = "labels")]
     pub required_labels: HashMap<String, String>,
 
     /// The time in secondso to get the metrics from Prometheus
     /// Shouldn't be faster than the scrape interval for the Target
     #[serde(default)]
+    #[serde(rename = "refresh")]
     pub pull_interval: usize,
 
     /// Tokio Core Handle
@@ -181,10 +185,37 @@ impl<'a> PrometheusTimeSeries<'a> {
 
     /// `set_url` loads self.source into a hyper::Uri
     pub fn set_url(&mut self) -> Result<(), String> {
-        //url should be like ("http://localhost:9090/api/v1/query?{}",query)
-        match self.source.parse::<hyper::Uri>() {
+        // url should be like ("http://localhost:9090/api/v1/query?{}",query)
+        // We split self.source into url_base_path?params
+        // XXX: We only support one param, if more params are added with &
+        //      they are percent encoded.
+        // But sounds like configuration would become easy to mess up.
+        let url_parts: Vec<&str> = self.source.split('?').collect();
+        if url_parts.len() < 2 {
+            return Err(String::from(
+                "Unable to get url_parts, expected http://host:port/location?params",
+            ));
+        }
+        let url_base_path = url_parts[0];
+        // XXX: We only support one input param
+        let url_param = url_parts[1..].join("");
+        let encoded_url_param = utf8_percent_encode(&url_param, DEFAULT_ENCODE_SET).to_string();
+        let mut encoded_url = format!("{}?{}", url_base_path, encoded_url_param);
+        // If this is a query_range, we need to add time range
+        if encoded_url.contains("/api/v1/query_range?") {
+            let end = std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let start = end - self.series.metrics_capacity as u64;
+            let step = "1"; // Maybe we can change granularity later
+            encoded_url = format!("{}&start={}&end={}&step={}", encoded_url, start, end, step);
+        }
+        match encoded_url.parse::<hyper::Uri>() {
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
+                    debug!("Setting url to: {:?}", url);
+                    self.url = url;
                     Ok(())
                 } else {
                     error!("Only HTTP protocol is supported");
@@ -204,17 +235,17 @@ impl<'a> PrometheusTimeSeries<'a> {
             match metric_labels.get(required_label) {
                 Some(return_value) => {
                     if return_value != required_value {
-                        error!("Required label {} exists but required value: {} does not match existing value: {}", required_label, required_value, return_value);
+                        debug!("Skip: Required label '{}' exists but required value: '{}' does not match current value: '{}'", required_label, required_value, return_value);
                         return false;
                     } else {
-                        error!(
-                            "Required label {} exists and matches required value",
+                        debug!(
+                            "Good: Required label '{}' exists and matches required value",
                             required_label
                         );
                     }
                 }
                 None => {
-                    error!("Required label {} does not exists", required_label);
+                    debug!("Skip: Required label '{}' does not exists", required_label);
                     return false;
                 }
             }
@@ -297,18 +328,21 @@ impl<'a> PrometheusTimeSeries<'a> {
     pub fn get_from_prometheus<'b>(
         &mut self,
     ) -> impl Future<Item = Option<HTTPResponse>, Error = ()> + 'b {
+        println!("Loading Prometheus URL: {}", self.url);
         Client::new()
             .get(self.url.clone())
             .and_then(|res| {
-                info!("Response: {}", res.status());
-                debug!("Headers: {:?}", res.headers());
+                info!("Response: {:?}", res);
                 res.into_body()
                     // A hyper::Body is a Stream of Chunk values. We need a
                     // non-blocking way to get all the chunks so we can deserialize the response.
                     // The concat2() function takes the separate body chunks and makes one
                     // hyper::Chunk value with the contents of the entire body
                     .concat2()
-                    .and_then(|body| Ok(parse_json(&body)))
+                    .and_then(|body| {
+                        debug!("Body: {:?}", body);
+                        Ok(parse_json(&body))
+                    })
             })
             .map_err(|err| {
                 error!("Error: {}", err);
@@ -346,6 +380,9 @@ impl<'a> PartialEq<PrometheusTimeSeries<'a>> for PrometheusTimeSeries<'a> {
 mod tests {
     use super::*;
     use tokio_core::reactor::Core;
+    fn init_log() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[test]
     fn it_skips_prometheus_errors() {
@@ -595,6 +632,7 @@ mod tests {
 
     #[test]
     fn it_gets_prometheus_metrics() {
+        // init_log();
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
         let mut test_labels = HashMap::new();
@@ -610,7 +648,10 @@ mod tests {
             test_labels.clone(),
             &core_handle,
         );
-        assert_eq!(test0_res, Err(String::from("Only http is supported.")));
+        assert_eq!(
+            test0_res,
+            Err(String::from("Unsupported protocol: Some(\"https\")"))
+        );
         let test1_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
@@ -621,6 +662,7 @@ mod tests {
         assert_eq!(test1_res.is_ok(), true);
         let mut test1 = test1_res.unwrap();
         let res1_get = core.run(test1.get_from_prometheus());
+        println!("get_from_prometheus: {:?}", res1_get);
         assert_eq!(res1_get.is_ok(), true);
         if let Ok(Some(prom_response)) = res1_get {
             // This requires a Prometheus Server running locally
