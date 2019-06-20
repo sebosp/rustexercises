@@ -6,19 +6,21 @@
 //! maintained as two separate indexes. This allows the vector to shrink
 //! and rotate without relocation of memory or shifting of the vector.
 
-// IN PROGRESS:
-// -- Use prometheus queries instead of our own aggregation/etc.
-// -- The yaml should drive an array of activity dashboards
+// DONE:
 // -- Add step to query (1 second resolution for example)
 // -- Add min/max time to query.
+// -- Move to config.yaml
+// -- The yaml should drive an array of activity dashboards
+// IN PROGRESS:
+// -- Use prometheus queries instead of our own aggregation/etc.
 // -- Group labels into separate colors (find something that does color spacing in rust)
-// -- Move to the config.yaml
 // -- Logging
 // TODO:
 // -- The dashboards should be toggable, some key combination
 // -- When activated on toggle it could blur a portion of the screen
 // -- derive builder
 // -- mock the prometheus server and response
+// -- Tokio timers
 
 #[macro_use]
 extern crate log;
@@ -27,8 +29,10 @@ extern crate serde_derive;
 
 extern crate futures;
 extern crate hyper;
+extern crate percent_encoding;
 extern crate serde;
 extern crate serde_json;
+extern crate tokio;
 extern crate tokio_core;
 // use crate::term::color::Rgb;
 // use crate::term::SizeInfo;
@@ -408,7 +412,7 @@ impl<'a> TimeSeriesSource<'a> {
             TimeSeriesSource::AlacrittyOutput(x) => &mut x.series,
         }
     }
-    fn name(&self) -> String {
+    pub fn name(&self) -> String {
         match self {
             TimeSeriesSource::PrometheusTimeSeries(x) => x.name.clone(),
             TimeSeriesSource::AlacrittyInput(x) => x.name.clone(),
