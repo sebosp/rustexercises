@@ -61,18 +61,23 @@ fn main() {
                 ) = series
                 {
                     debug!(" - Found time_series, adding interval run");
+                    let url = prom.url.clone();
                     let interval = Interval::new(Instant::now(), Duration::from_secs(10))
                         .take(10) //  Test 10 times first
                         .map_err(|e| panic!("interval errored; err={:?}", e))
-                        .fold(prom, move |mut prom, instant| {
+                        .fold(url, move |url, instant| {
                             println!("fire; instant={:?}", instant);
-                            tokio::spawn(lazy(|| {
-                                prom.get_from_prometheus().and_then(|_| {
-                                    debug!("Got data from prom");
+                            let get_prom_data_task =
+                                circular_buffer_metrics::prometheus::get_from_prometheus(
+                                    url.clone(),
+                                )
+                                .and_then(|value| {
+                                    let res =
+                                        circular_buffer_metrics::prometheus::parse_json(&value);
+                                    debug!("res={:?}", res);
                                     Ok(())
                                 });
-                                Ok(())
-                            }));
+                            tokio::spawn(get_prom_data_task);
                             // .map_err(|e| panic!("Get from prometheus err={:?}", e));
                             //                            .and_then(|value| {
                             //                                if let Some(prom_response) = value {
@@ -90,7 +95,7 @@ fn main() {
                             //                                }
                             //                            });
                             //Ok(prom)
-                            Ok(prom)
+                            Ok(url)
                         });
                     tokio::spawn(interval);
                 }
