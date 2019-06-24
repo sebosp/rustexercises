@@ -382,22 +382,22 @@ impl Default for ManualTimeSeries {
 /// with drawable data
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
-pub enum TimeSeriesSource<'a> {
+pub enum TimeSeriesSource {
     #[serde(rename = "prometheus")]
-    PrometheusTimeSeries(prometheus::PrometheusTimeSeries<'a>),
+    PrometheusTimeSeries(prometheus::PrometheusTimeSeries),
     #[serde(rename = "alacritty_input")]
     AlacrittyInput(ManualTimeSeries),
     #[serde(rename = "alacritty_output")]
     AlacrittyOutput(ManualTimeSeries),
 }
 
-impl<'a> Default for TimeSeriesSource<'a> {
-    fn default() -> TimeSeriesSource<'a> {
+impl Default for TimeSeriesSource {
+    fn default() -> TimeSeriesSource {
         TimeSeriesSource::AlacrittyInput(ManualTimeSeries::default())
     }
 }
 
-impl<'a> TimeSeriesSource<'a> {
+impl TimeSeriesSource {
     fn series(&self) -> TimeSeries {
         match self {
             TimeSeriesSource::PrometheusTimeSeries(x) => x.series.clone(),
@@ -466,13 +466,13 @@ impl SizeInfo {
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct TimeSeriesChart<'a> {
+pub struct TimeSeriesChart {
     /// The name of the Chart
     pub name: String,
 
     /// The different sources of the TimeSeries to draw
     #[serde(rename = "series")]
-    pub sources: Vec<TimeSeriesSource<'a>>,
+    pub sources: Vec<TimeSeriesSource>,
 
     /// Decorations such as color, transparency, etc
     #[serde(default)]
@@ -504,7 +504,7 @@ pub struct TimeSeriesChart<'a> {
     pub series_opengl_vecs: Vec<f32>,
 }
 
-impl<'a> TimeSeriesChart<'a> {
+impl TimeSeriesChart {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
     pub fn update_activity_opengl_vecs(&mut self, display_size: SizeInfo) {
