@@ -97,7 +97,7 @@ pub fn serde_json_to_num(input: &serde_json::Value) -> Option<f64> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PrometheusTimeSeries<'a> {
+pub struct PrometheusTimeSeries {
     /// The Name of this TimesSeries
     #[serde(default)]
     pub name: String,
@@ -132,14 +132,10 @@ pub struct PrometheusTimeSeries<'a> {
     #[serde(default)]
     #[serde(rename = "refresh")]
     pub pull_interval: usize,
-
-    /// Tokio Core Handle
-    #[serde(skip)]
-    pub tokio_core: Option<&'a tokio_core::reactor::Handle>,
 }
 
-impl<'a> Default for PrometheusTimeSeries<'a> {
-    fn default() -> PrometheusTimeSeries<'a> {
+impl Default for PrometheusTimeSeries {
+    fn default() -> PrometheusTimeSeries {
         PrometheusTimeSeries {
             name: String::from("Unset"),
             series: crate::TimeSeries::default(),
@@ -148,23 +144,19 @@ impl<'a> Default for PrometheusTimeSeries<'a> {
             url: hyper::Uri::default(),
             pull_interval: 15,
             data_type: String::from("vector"),
-            tokio_core: None,
             required_labels: HashMap::new(),
         }
     }
 }
-impl<'a> PrometheusTimeSeries<'a> {
+impl PrometheusTimeSeries {
     /// `new` returns a new PrometheusTimeSeries. it takes a URL where to load
     /// the data from and a pull_interval, this should match scrape interval in
     /// Prometheus Server side to avoid pulling the same values over and over.
-    /// A tokio_core handle must be passed to the constructor to be used for
-    /// asynchronous tasks
     pub fn new(
         url_param: String,
         pull_interval: usize,
         data_type: String,
         required_labels: HashMap<String, String>,
-        tokio_core: &tokio_core::reactor::Handle,
     ) -> Result<PrometheusTimeSeries, String> {
         let mut res = PrometheusTimeSeries {
             name: String::from("Unset"),
@@ -174,7 +166,6 @@ impl<'a> PrometheusTimeSeries<'a> {
             url: hyper::Uri::default(),
             pull_interval,
             data_type,
-            tokio_core: Some(tokio_core),
             required_labels,
         };
         match res.set_url() {
@@ -320,36 +311,31 @@ impl<'a> PrometheusTimeSeries<'a> {
         }
         Ok(loaded_items)
     }
-
-    /// `get_from_prometheus` is an async operation that returns an Optional
-    /// PrometheusResponse, this function uses the internal `tokio_core`'s
-    /// handle which is a runtime provided to the class, the body of the
-    /// response is parsed and returned eventually.
-    pub fn get_from_prometheus<'b>(
-        &mut self,
-    ) -> impl Future<Item = Option<HTTPResponse>, Error = ()> + 'b {
-        println!("Loading Prometheus URL: {}", self.url);
-        Client::new()
-            .get(self.url.clone())
-            .and_then(|res| {
-                info!("Response: {:?}", res);
-                res.into_body()
-                    // A hyper::Body is a Stream of Chunk values. We need a
-                    // non-blocking way to get all the chunks so we can deserialize the response.
-                    // The concat2() function takes the separate body chunks and makes one
-                    // hyper::Chunk value with the contents of the entire body
-                    .concat2()
-                    .and_then(|body| {
-                        debug!("Body: {:?}", body);
-                        Ok(parse_json(&body))
-                    })
-            })
-            .map_err(|err| {
-                error!("Error: {}", err);
-            })
-    }
 }
 
+/// `get_from_prometheus` is an async operation that returns an Optional
+/// PrometheusResponse
+pub fn get_from_prometheus(url: hyper::Uri) -> impl Future<Item = hyper::Chunk, Error = ()> {
+    info!("Loading Prometheus URL: {}", url);
+    Client::new()
+        .get(url.clone())
+        .and_then(|res| {
+            info!("Response: {:?}", res);
+            res.into_body()
+                // A hyper::Body is a Stream of Chunk values. We need a
+                // non-blocking way to get all the chunks so we can deserialize the response.
+                // The concat2() function takes the separate body chunks and makes one
+                // hyper::Chunk value with the contents of the entire body
+                .concat2()
+                .and_then(|body| {
+                    debug!("Body: {:?}", body);
+                    Ok(body)
+                })
+        })
+        .map_err(|err| {
+            error!("Error: {}", err);
+        })
+}
 /// `parse_json` transforms a hyper body chunk into a possible
 /// PrometheusResponse, mostly used for testing
 pub fn parse_json(body: &hyper::Chunk) -> Option<HTTPResponse> {
@@ -366,9 +352,10 @@ pub fn parse_json(body: &hyper::Chunk) -> Option<HTTPResponse> {
         }
     }
 }
+/// XXX: REMOVE
 /// Implement PartialEq for PrometheusTimeSeries because the field
 /// tokio_core should be ignored
-impl<'a> PartialEq<PrometheusTimeSeries<'a>> for PrometheusTimeSeries<'a> {
+impl PartialEq<PrometheusTimeSeries> for PrometheusTimeSeries {
     fn eq(&self, other: &PrometheusTimeSeries) -> bool {
         self.series == other.series
             && self.url == other.url
@@ -386,16 +373,12 @@ mod tests {
 
     #[test]
     fn it_skips_prometheus_errors() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
         // This URL has the end time BEFORE the start time
         let test0_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253499&end=1558253479&step=1"),
             15,
             String::from("matrix"),
             HashMap::new(),
-            &core_handle,
         );
         assert_eq!(test0_res.is_ok(), true);
         // A json returned by prometheus
@@ -414,15 +397,11 @@ mod tests {
 
     #[test]
     fn it_loads_prometheus_scalars() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
         let test0_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=1"),
             15,
             String::from("scalar"),
             HashMap::new(),
-            &core_handle,
         );
         assert_eq!(test0_res.is_ok(), true);
         let mut test0 = test0_res.unwrap();
@@ -460,15 +439,11 @@ mod tests {
 
     #[test]
     fn it_loads_prometheus_matrix() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
         let test0_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query_range?query=node_load1&start=1558253469&end=1558253479&step=1"),
             15,
             String::from("matrix"),
-            HashMap::new(),
-            &core_handle,
+            HashMap::new()
         );
         assert_eq!(test0_res.is_ok(), true);
         let mut test0 = test0_res.unwrap();
@@ -532,16 +507,12 @@ mod tests {
     }
     #[test]
     fn it_loads_prometheus_vector() {
-        // Create a Tokio Core to use for testing
-        let core = Core::new().unwrap();
-        let core_handle = &core.handle();
         let mut metric_labels = HashMap::new();
         let test0_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("http://localhost:9090/api/v1/query?query=up"),
             15,
             String::from("vector"),
             metric_labels.clone(),
-            &core_handle,
         );
         assert_eq!(test0_res.is_ok(), true);
         let mut test0 = test0_res.unwrap();
@@ -632,21 +603,19 @@ mod tests {
 
     #[test]
     fn it_gets_prometheus_metrics() {
-        // init_log();
+        init_log();
         // Create a Tokio Core to use for testing
         let mut core = Core::new().unwrap();
         let mut test_labels = HashMap::new();
         test_labels.insert(String::from("name"), String::from("up"));
         test_labels.insert(String::from("job"), String::from("prometheus"));
         test_labels.insert(String::from("instance"), String::from("localhost:9090"));
-        let core_handle = &core.handle();
         // Test non plain http error:
         let test0_res: Result<PrometheusTimeSeries, String> = PrometheusTimeSeries::new(
             String::from("https://localhost:9090/api/v1/query?query=up"),
             15,
             String::from("vector"),
             test_labels.clone(),
-            &core_handle,
         );
         assert_eq!(
             test0_res,
@@ -657,14 +626,13 @@ mod tests {
             15,
             String::from("vector"),
             test_labels.clone(),
-            &core_handle,
         );
         assert_eq!(test1_res.is_ok(), true);
-        let mut test1 = test1_res.unwrap();
-        let res1_get = core.run(test1.get_from_prometheus());
+        let test1 = test1_res.unwrap();
+        let res1_get = core.run(get_from_prometheus(test1.url.clone()));
         println!("get_from_prometheus: {:?}", res1_get);
         assert_eq!(res1_get.is_ok(), true);
-        if let Ok(Some(prom_response)) = res1_get {
+        if let Some(prom_response) = parse_json(&res1_get.unwrap()) {
             // This requires a Prometheus Server running locally
             // XXX: mock this.
             // Example playload:
