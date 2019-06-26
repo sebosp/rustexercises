@@ -8,15 +8,15 @@ static DEFAULT_CHART_CONFIG: &'static str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
 /// Top-level config type
 #[derive(Debug, PartialEq, Deserialize)]
-pub struct Config<'a> {
-    pub charts: Vec<crate::TimeSeriesChart<'a>>,
+pub struct Config {
+    pub charts: Vec<crate::TimeSeriesChart>,
 }
-impl<'a> Default for Config<'a> {
+impl Default for Config {
     fn default() -> Self {
         serde_yaml::from_str(DEFAULT_CHART_CONFIG).expect("default config is invalid")
     }
 }
-impl<'a> Config<'a> {
+impl Config {
     /// This method is used from config/mod.rs in Alacritty.
     /// This is a copy for testing
     pub fn read_config(path: &PathBuf) -> Result<Config, String> {
