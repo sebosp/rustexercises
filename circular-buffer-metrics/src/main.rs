@@ -8,19 +8,22 @@ use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
-/// `AsyncMetricItemLocator` contains a way to address a response to a particular
+/// `AsyncMetricItemData` contains a way to address a response to a particular
 /// item in our TimeSeriesCharts
-#[derive(Debug)]
-pub struct AsyncMetricItemLocator {
+#[derive(Debug, Clone)]
+pub struct AsyncMetricItemData {
     pull_interval: u64,
     url: hyper::Uri,
     chart_index: usize,  // For Vec<TimeSeriesChart>
     series_index: usize, // For Vec<TimeSeriesSource>
+    data: Option<circular_buffer_metrics::prometheus::HTTPResponse>,
 }
 
-type ResponseMessage = oneshot::Sender<hyper::Chunk>;
+type AsyncMetriccItemMessage = oneshot::Sender<AsyncMetricItemData>;
 
-fn async_coordinator(rx: mpsc::Receiver<ResponseMessage>) -> impl Future<Item = (), Error = ()> {
+fn async_coordinator(
+    rx: mpsc::Receiver<AsyncMetriccItemMessage>,
+) -> impl Future<Item = (), Error = ()> {
     rx.for_each(move |response| {
         info!("Coordinator Got response: {:?}", response);
         Ok(())
@@ -54,33 +57,59 @@ fn load_config_file() -> circular_buffer_metrics::config::Config {
 /// `fetch_prometheus_response` creates intervals for each series requested
 /// Each series will have to reply to a mspc tx with the data
 fn fetch_prometheus_response(
-    pull_interval: u64,
-    url: hyper::Uri,
-    tx: mpsc::Sender<ResponseMessage>,
+    item: AsyncMetricItemData,
+    tx: mpsc::Sender<AsyncMetricItemData>,
 ) -> impl Future<Item = (), Error = ()> {
-    circular_buffer_metrics::prometheus::get_from_prometheus(url.clone())
-        .timeout(Duration::from_secs(pull_interval))
-        .map_err(|e| panic!("get_from_prometheus; err={:?}", e))
-        .and_then(|value| {
+    circular_buffer_metrics::prometheus::get_from_prometheus(item.url.clone())
+        .timeout(Duration::from_secs(item.pull_interval))
+        .map_err(|e| error!("get_from_prometheus; err={:?}", e))
+        .and_then(move |value| {
+            debug!("Got prometheus raw value={:?}", value);
             let res = circular_buffer_metrics::prometheus::parse_json(&value);
-            debug!("res={:?}", res);
+            debug!("Parsed JSON to res={:?}", res);
+            let (resp_tx, resp_rx) = oneshot::channel();
+
+            tx.send(resp_tx)
+                .map_err(|_| ())
+                .and_then(|tx| resp_rx.map(|dur| (dur, tx)).map_err(|_| ()));
+            tx.send(AsyncMetricItemData {
+                url: item.url.clone(),
+                chart_index: item.chart_index,
+                series_index: item.series_index,
+                pull_interval: item.pull_interval,
+                data: res.clone(),
+            });
+
             Ok(())
         })
+        .map_err(|e| error!("Sending result to coordinator; err={:?}", e))
 }
 /// `spawn_interval_polls` creates intervals for each series requested
 /// Each series will have to reply to a mspc tx with the data
 fn spawn_interval_polls(
-    item: AsyncMetricItemLocator,
-    tx: &mpsc::Sender<ResponseMessage>,
+    item: &AsyncMetricItemData,
+    tx: mpsc::Sender<AsyncMetricItemData>,
 ) -> impl Future<Item = (), Error = ()> {
     Interval::new(Instant::now(), Duration::from_secs(item.pull_interval))
         .take(10) //  Test 10 times first
         .map_err(|e| panic!("interval errored; err={:?}", e))
         .fold(
-            (item.pull_interval, item.url.clone()),
-            move |(pull_interval, url), instant| {
-                debug!("Interval triggered for {:?} at instant={:?}", url, instant);
-                tokio::spawn(fetch_prometheus_response(pull_interval, url, &tx));
+            AsyncMetricItemData {
+                url: item.url.clone(),
+                chart_index: item.chart_index,
+                series_index: item.series_index,
+                pull_interval: item.pull_interval,
+                data: None,
+            },
+            move |async_metric_item, instant| {
+                debug!(
+                    "Interval triggered for {:?} at instant={:?}",
+                    async_metric_item.url, instant
+                );
+                tokio::spawn(fetch_prometheus_response(
+                    async_metric_item.clone(),
+                    tx.clone(),
+                ));
                 // .map_err(|e| panic!("Get from prometheus err={:?}", e));
                 //                            .and_then(|value| {
                 //                                if let Some(prom_response) = value {
@@ -98,7 +127,7 @@ fn spawn_interval_polls(
                 //                                }
                 //                            });
                 //Ok(prom)
-                Ok((pull_interval, url))
+                Ok(async_metric_item)
             },
         )
         .map(|_| ())
@@ -128,13 +157,14 @@ fn main() {
                         }
                         Err(err) => error!(" - Parsing URL '{}': '{}'", err, prom.source),
                     };
-                    let data_request = AsyncMetricItemLocator {
+                    let data_request = AsyncMetricItemData {
                         url: prom.url.clone(),
                         pull_interval: prom.pull_interval as u64,
                         chart_index,
                         series_index,
+                        data: None,
                     };
-                    tokio::spawn(spawn_interval_polls(data_request, &tx));
+                    tokio::spawn(lazy(|| spawn_interval_polls(&data_request, tx.clone())));
                 }
                 series_index += 1;
             }
