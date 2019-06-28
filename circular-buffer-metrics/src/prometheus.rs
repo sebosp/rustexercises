@@ -320,7 +320,7 @@ pub fn get_from_prometheus(url: hyper::Uri) -> impl Future<Item = hyper::Chunk, 
     Client::new()
         .get(url.clone())
         .and_then(|res| {
-            info!("Response: {:?}", res);
+            debug!("get_from_prometheus: Response={:?}", res);
             res.into_body()
                 // A hyper::Body is a Stream of Chunk values. We need a
                 // non-blocking way to get all the chunks so we can deserialize the response.
@@ -328,7 +328,7 @@ pub fn get_from_prometheus(url: hyper::Uri) -> impl Future<Item = hyper::Chunk, 
                 // hyper::Chunk value with the contents of the entire body
                 .concat2()
                 .and_then(|body| {
-                    debug!("Body: {:?}", body);
+                    debug!("get_from_prometheus: Body={:?}", body);
                     Ok(body)
                 })
         })
@@ -343,11 +343,11 @@ pub fn parse_json(body: &hyper::Chunk) -> Option<HTTPResponse> {
     // XXX: Figure out how to return the error
     match prom_res {
         Ok(v) => {
-            println!("returned JSON: {:?}", v);
+            debug!("parse_json: returned JSON={:?}", v);
             Some(v)
         }
         Err(err) => {
-            println!("Unable to parse JSON: {:?}", err);
+            error!("Unable to parse JSON err={:?}", err);
             None
         }
     }
