@@ -1,34 +1,12 @@
 //! Loads prometheus metrics every now and then and displays stats
 use env_logger::Env;
 use futures::future::lazy;
-use futures::sync::{mpsc, oneshot};
+use futures::sync::mpsc;
 use log::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
-
-/// `AsyncMetricItemData` contains a way to address a response to a particular
-/// item in our TimeSeriesCharts
-#[derive(Debug, Clone)]
-pub struct AsyncMetricItemData {
-    pull_interval: u64,
-    url: hyper::Uri,
-    chart_index: usize,  // For Vec<TimeSeriesChart>
-    series_index: usize, // For Vec<TimeSeriesSource>
-    data: Option<circular_buffer_metrics::prometheus::HTTPResponse>,
-}
-
-type AsyncMetriccItemMessage = oneshot::Sender<AsyncMetricItemData>;
-
-fn async_coordinator(
-    rx: mpsc::Receiver<AsyncMetriccItemMessage>,
-) -> impl Future<Item = (), Error = ()> {
-    rx.for_each(move |response| {
-        info!("Coordinator Got response: {:?}", response);
-        Ok(())
-    })
-}
 
 fn load_config_file() -> circular_buffer_metrics::config::Config {
     let config_location = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
@@ -54,6 +32,26 @@ fn load_config_file() -> circular_buffer_metrics::config::Config {
     }
 }
 
+/// `AsyncMetricItemData` contains a way to address a response to a particular
+/// item in our TimeSeriesCharts
+#[derive(Debug, Clone)]
+pub struct AsyncMetricItemData {
+    pull_interval: u64,
+    url: hyper::Uri,
+    chart_index: usize,  // For Vec<TimeSeriesChart>
+    series_index: usize, // For Vec<TimeSeriesSource>
+    data: Option<circular_buffer_metrics::prometheus::HTTPResponse>,
+}
+
+fn async_coordinator(
+    rx: mpsc::Receiver<AsyncMetricItemData>,
+) -> impl Future<Item = (), Error = ()> {
+    rx.for_each(move |response| {
+        debug!("Coordinator Got response: {:?}", response);
+        Ok(())
+    })
+}
+
 /// `fetch_prometheus_response` creates intervals for each series requested
 /// Each series will have to reply to a mspc tx with the data
 fn fetch_prometheus_response(
@@ -67,20 +65,23 @@ fn fetch_prometheus_response(
             debug!("Got prometheus raw value={:?}", value);
             let res = circular_buffer_metrics::prometheus::parse_json(&value);
             debug!("Parsed JSON to res={:?}", res);
-            let (resp_tx, resp_rx) = oneshot::channel();
-
-            tx.send(resp_tx)
-                .map_err(|_| ())
-                .and_then(|tx| resp_rx.map(|dur| (dur, tx)).map_err(|_| ()));
             tx.send(AsyncMetricItemData {
                 url: item.url.clone(),
                 chart_index: item.chart_index,
                 series_index: item.series_index,
                 pull_interval: item.pull_interval,
                 data: res.clone(),
-            });
-
-            Ok(())
+            })
+            .map_err(|e| {
+                error!(
+                    "fetch_prometheus_response: send data back to coordinator; err={:?}",
+                    e
+                )
+            })
+            .and_then(|res| {
+                debug!("Got res={:?}", res);
+                Ok(())
+            })
         })
         .map_err(|e| error!("Sending result to coordinator; err={:?}", e))
 }
@@ -106,10 +107,10 @@ fn spawn_interval_polls(
                     "Interval triggered for {:?} at instant={:?}",
                     async_metric_item.url, instant
                 );
-                tokio::spawn(fetch_prometheus_response(
-                    async_metric_item.clone(),
-                    tx.clone(),
-                ));
+                fetch_prometheus_response(async_metric_item.clone(), tx.clone()).and_then(|res| {
+                    debug!("Got response {:?}", res);
+                    Ok(async_metric_item)
+                })
                 // .map_err(|e| panic!("Get from prometheus err={:?}", e));
                 //                            .and_then(|value| {
                 //                                if let Some(prom_response) = value {
@@ -127,7 +128,6 @@ fn spawn_interval_polls(
                 //                                }
                 //                            });
                 //Ok(prom)
-                Ok(async_metric_item)
             },
         )
         .map(|_| ())
@@ -164,7 +164,8 @@ fn main() {
                         series_index,
                         data: None,
                     };
-                    tokio::spawn(lazy(|| spawn_interval_polls(&data_request, tx.clone())));
+                    let tx = tx.clone();
+                    tokio::spawn(lazy(move || spawn_interval_polls(&data_request, tx)));
                 }
                 series_index += 1;
             }
