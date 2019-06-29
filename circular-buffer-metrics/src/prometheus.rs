@@ -168,20 +168,25 @@ impl PrometheusTimeSeries {
             data_type,
             required_labels,
         };
-        match res.set_url() {
-            Ok(()) => Ok(res),
+        match PrometheusTimeSeries::prepare_url(&res.source, res.series.metrics_capacity as u64) {
+            Ok(url) => {
+                res.url = url;
+                Ok(res)
+            }
             Err(err) => Err(err),
         }
     }
 
-    /// `set_url` loads self.source into a hyper::Uri
-    pub fn set_url(&mut self) -> Result<(), String> {
+    /// `prepare_url` loads self.source into a hyper::Uri
+    /// It also adds a epoch-start and epoch-end to the
+    /// URL depending on the metrics capacity
+    pub fn prepare_url(source: &String, metrics_capacity: u64) -> Result<hyper::Uri, String> {
         // url should be like ("http://localhost:9090/api/v1/query?{}",query)
         // We split self.source into url_base_path?params
         // XXX: We only support one param, if more params are added with &
         //      they are percent encoded.
         // But sounds like configuration would become easy to mess up.
-        let url_parts: Vec<&str> = self.source.split('?').collect();
+        let url_parts: Vec<&str> = source.split('?').collect();
         if url_parts.len() < 2 {
             return Err(String::from(
                 "Unable to get url_parts, expected http://host:port/location?params",
@@ -198,7 +203,7 @@ impl PrometheusTimeSeries {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let start = end - self.series.metrics_capacity as u64;
+            let start = end - metrics_capacity;
             let step = "1"; // Maybe we can change granularity later
             encoded_url = format!("{}&start={}&end={}&step={}", encoded_url, start, end, step);
         }
@@ -206,8 +211,7 @@ impl PrometheusTimeSeries {
             Ok(url) => {
                 if url.scheme_part() == Some(&hyper::http::uri::Scheme::HTTP) {
                     debug!("Setting url to: {:?}", url);
-                    self.url = url;
-                    Ok(())
+                    Ok(url)
                 } else {
                     error!("Only HTTP protocol is supported");
                     Err(format!("Unsupported protocol: {:?}", url.scheme_part()))
