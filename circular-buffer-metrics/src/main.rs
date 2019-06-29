@@ -37,14 +37,16 @@ fn load_config_file() -> circular_buffer_metrics::config::Config {
 #[derive(Debug, Clone)]
 pub struct AsyncMetricItemData {
     pull_interval: u64,
-    url: hyper::Uri,
+    source_url: String,
     chart_index: usize,  // For Vec<TimeSeriesChart>
     series_index: usize, // For Vec<TimeSeriesSource>
     data: Option<circular_buffer_metrics::prometheus::HTTPResponse>,
+    capacity: usize,
 }
 
 fn async_coordinator(
     rx: mpsc::Receiver<AsyncMetricItemData>,
+    charts: Vec<circular_buffer_metrics::TimeSeriesChart>,
 ) -> impl Future<Item = (), Error = ()> {
     rx.for_each(move |response| {
         debug!("Coordinator Got response: {:?}", response);
@@ -58,7 +60,12 @@ fn fetch_prometheus_response(
     item: AsyncMetricItemData,
     tx: mpsc::Sender<AsyncMetricItemData>,
 ) -> impl Future<Item = (), Error = ()> {
-    circular_buffer_metrics::prometheus::get_from_prometheus(item.url.clone())
+    let url = circular_buffer_metrics::prometheus::PrometheusTimeSeries::prepare_url(
+        &item.source_url,
+        item.capacity as u64,
+    )
+    .unwrap();
+    circular_buffer_metrics::prometheus::get_from_prometheus(url.clone())
         .timeout(Duration::from_secs(item.pull_interval))
         .map_err(|e| error!("get_from_prometheus; err={:?}", e))
         .and_then(move |value| {
@@ -66,11 +73,12 @@ fn fetch_prometheus_response(
             let res = circular_buffer_metrics::prometheus::parse_json(&value);
             debug!("Parsed JSON to res={:?}", res);
             tx.send(AsyncMetricItemData {
-                url: item.url.clone(),
+                source_url: item.source_url.clone(),
                 chart_index: item.chart_index,
                 series_index: item.series_index,
                 pull_interval: item.pull_interval,
                 data: res.clone(),
+                capacity: item.capacity,
             })
             .map_err(|e| {
                 error!(
@@ -96,16 +104,17 @@ fn spawn_interval_polls(
         .map_err(|e| panic!("interval errored; err={:?}", e))
         .fold(
             AsyncMetricItemData {
-                url: item.url.clone(),
+                source_url: item.source_url.clone(),
                 chart_index: item.chart_index,
                 series_index: item.series_index,
                 pull_interval: item.pull_interval,
                 data: None,
+                capacity: item.capacity,
             },
             move |async_metric_item, instant| {
                 debug!(
                     "Interval triggered for {:?} at instant={:?}",
-                    async_metric_item.url, instant
+                    async_metric_item.source_url, instant
                 );
                 fetch_prometheus_response(async_metric_item.clone(), tx.clone()).and_then(|res| {
                     debug!("Got response {:?}", res);
@@ -135,33 +144,28 @@ fn spawn_interval_polls(
 fn main() {
     println!("Starting program");
     env_logger::from_env(Env::default().default_filter_or("info")).init();
-    tokio::run(lazy(|| {
+    let config = load_config_file();
+    let mut chart_index = 0usize;
+    tokio::run(lazy(move || {
         // Create the channel that is used to communicate with the
         // background task.
         let (tx, rx) = mpsc::channel(4_096usize);
-        tokio::spawn(async_coordinator(rx));
-        let mut config = load_config_file();
-        let mut chart_index = 0usize;
-        for chart in &mut config.charts {
+        let charts = config.charts.clone();
+        tokio::spawn(lazy(move || async_coordinator(rx, charts)));
+        for chart in config.charts {
             debug!("Loading chart series with name: '{}'", chart.name);
             let mut series_index = 0usize;
-            for series in &mut chart.sources {
-                if let circular_buffer_metrics::TimeSeriesSource::PrometheusTimeSeries(
-                    ref mut prom,
-                ) = series
+            for series in chart.sources {
+                if let circular_buffer_metrics::TimeSeriesSource::PrometheusTimeSeries(ref prom) =
+                    series
                 {
                     debug!(" - Found time_series, adding interval run");
-                    match prom.set_url() {
-                        Ok(()) => {
-                            debug!(" - Parsed URL '{}'", prom.source);
-                        }
-                        Err(err) => error!(" - Parsing URL '{}': '{}'", err, prom.source),
-                    };
                     let data_request = AsyncMetricItemData {
-                        url: prom.url.clone(),
+                        source_url: prom.source.clone(),
                         pull_interval: prom.pull_interval as u64,
                         chart_index,
                         series_index,
+                        capacity: prom.series.metrics_capacity,
                         data: None,
                     };
                     let tx = tx.clone();
