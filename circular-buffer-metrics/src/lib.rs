@@ -158,7 +158,7 @@ pub struct IterTimeSeries<'a> {
 
 /// `ReferencePointDecoration` draws a fixed point to give a reference point
 /// of what a drawn value may mean
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ReferencePointDecoration {
     /// The value at which to draw the reference point
     pub value: f64,
@@ -275,7 +275,7 @@ impl ReferencePointDecoration {
 }
 
 /// `Decoration` contains several types of decorations to add to a chart
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum Decoration {
     #[serde(rename = "reference")]
@@ -349,7 +349,7 @@ impl Decoration {
 
 /// `ManualTimeSeries` is a 2D struct from top left being 0,0
 /// and bottom right being display limits in pixels
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ManualTimeSeries {
     /// The name of the ManualTimeSeries
     pub name: String,
@@ -380,7 +380,7 @@ impl Default for ManualTimeSeries {
 
 /// `TimeSeriesSource` contains several types of time series that can be extended
 /// with drawable data
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum TimeSeriesSource {
     #[serde(rename = "prometheus")]
@@ -465,7 +465,7 @@ impl SizeInfo {
 
 /// `TimeSeriesChart` has an array of TimeSeries to display, it contains the
 /// X, Y position and has methods to draw in opengl.
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct TimeSeriesChart {
     /// The name of the Chart
     pub name: String,
@@ -736,12 +736,16 @@ impl TimeSeries {
     /// missing entries, may invalidate the buffer if all data is outdated
     pub fn push(&mut self, input: (u64, f64)) {
         if !self.metrics.is_empty() {
-            let last_idx = if self.last_idx == self.metrics_capacity {
+            let last_idx = if self.last_idx == self.metrics_capacity || self.last_idx == 0 {
                 self.metrics.len() - 1
             } else {
                 self.last_idx - 1
             };
-            let inactive_time = (input.0 - self.metrics[last_idx].0) as usize;
+            let inactive_time = if input.0 > self.metrics[last_idx].0 {
+                (input.0 - self.metrics[last_idx].0) as usize
+            } else {
+                0usize
+            };
             if inactive_time > self.metrics_capacity {
                 // The whole vector should be discarded
                 self.first_idx = 0;
