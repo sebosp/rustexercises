@@ -1,3 +1,4 @@
+use crate::ValueCollisionPolicy;
 /// `Prometheus HTTP API` data structures
 use hyper::rt::{Future, Stream};
 use hyper::Client;
@@ -168,6 +169,7 @@ impl PrometheusTimeSeries {
             data_type,
             required_labels,
         };
+        res.series.collision_policy = ValueCollisionPolicy::Overwrite;
         match PrometheusTimeSeries::prepare_url(&res.source, res.series.metrics_capacity as u64) {
             Ok(url) => {
                 res.url = url;
@@ -180,7 +182,7 @@ impl PrometheusTimeSeries {
     /// `prepare_url` loads self.source into a hyper::Uri
     /// It also adds a epoch-start and epoch-end to the
     /// URL depending on the metrics capacity
-    pub fn prepare_url(source: &String, metrics_capacity: u64) -> Result<hyper::Uri, String> {
+    pub fn prepare_url(source: &str, metrics_capacity: u64) -> Result<hyper::Uri, String> {
         // url should be like ("http://localhost:9090/api/v1/query?{}",query)
         // We split self.source into url_base_path?params
         // XXX: We only support one param, if more params are added with &
@@ -573,9 +575,7 @@ mod tests {
         test0.required_labels = metric_labels.clone();
         let res2_load = test0.load_prometheus_response(res0_json.clone().unwrap());
         assert_eq!(res2_load, Ok(0usize));
-        // By default the metrics should have been Incremented (ValueCollisionPolicy)
-        // We have imported the metric 3 times
-        assert_eq!(test0.series.as_vec(), vec![(1557571137u64, Some(3.))]);
+        assert_eq!(test0.series.as_vec(), vec![(1557571137u64, Some(1.))]);
         // This json is missing the value after the epoch
         let test1_json = hyper::Chunk::from(
             r#"
