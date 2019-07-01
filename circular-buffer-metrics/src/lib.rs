@@ -507,32 +507,38 @@ pub struct TimeSeriesChart {
 impl TimeSeriesChart {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
-    pub fn update_activity_opengl_vecs(&mut self, display_size: SizeInfo) {
-        debug!("Chart: Starting update_activity_opengl_vecs");
+    pub fn update_opengl_vecs(&mut self, display_size: SizeInfo) {
+        debug!("Chart: Starting update_opengl_vecs");
         // Get the opengl representation of the vector
         let opengl_vecs_len = self.sources.iter().fold(0usize, |acc: usize, source| {
             acc + source.series().active_items
         });
         for source in &mut self.sources {
             if source.series().stats.is_dirty {
-                debug!("{} stats are dirty, needs recalculating", source.name());
+                debug!(
+                    "Chart: {} stats are dirty, needs recalculating",
+                    source.name()
+                );
                 source.series_mut().calculate_stats();
             }
         }
         self.calculate_stats();
         let mut decorations_space = 0f32;
         for decoration in &self.decorations {
-            debug!("Adding width of decoration: {}", decoration.width());
+            debug!("Chart: Adding width of decoration: {}", decoration.width());
             decorations_space += decoration.width();
         }
         for source in self.sources.iter() {
             let idx = 0usize;
             let missing_values_fill = source.series().get_missing_values_fill();
-            debug!("Using {} to fill missing values", missing_values_fill);
+            debug!(
+                "Chart: Using {} to fill missing values",
+                missing_values_fill
+            );
             // Calculate the tick spacing
             let tick_spacing =
                 (self.width - decorations_space) / source.series().metrics_capacity as f32;
-            debug!("Using tick_spacing {}", tick_spacing);
+            debug!("Chart: Using tick_spacing {}", tick_spacing);
             for metric in source.series().iter() {
                 // The decorations width request is on both left and right.
                 let x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
@@ -556,7 +562,7 @@ impl TimeSeriesChart {
             }
         }
         for decoration in &mut self.decorations {
-            debug!("Updating decoration {:?} vertices", decoration);
+            debug!("Chart: Updating decoration {:?} vertices", decoration);
             decoration.update_opengl_vertices(
                 display_size,
                 self.offset,
@@ -605,7 +611,7 @@ impl TimeSeriesChart {
         self.stats.sum = sum_activity_values;
         self.stats.avg = sum_activity_values / filled_stats as f64;
         self.stats.is_dirty = false;
-        debug!("Updated statistics to: {:?}", self.stats);
+        debug!("Chart: Updated statistics to: {:?}", self.stats);
     }
 }
 
