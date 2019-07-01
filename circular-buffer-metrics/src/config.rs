@@ -36,4 +36,30 @@ impl Config {
 
         Ok(config)
     }
+
+    /// `load_config_file` will return the loaded configuration. If the config is
+    /// invalid it will return the default config
+    pub fn load_config_file() -> Config {
+        let config_location = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
+        let config_res = Config::read_config(&config_location);
+        match config_res {
+            Err(err) => {
+                error!(
+                    "Unable to load config from file: {:?}: '{}'",
+                    config_location, err
+                );
+                Config::default()
+            }
+            Ok(config) => {
+                info!("Loaded config from file: {:?}", config_location);
+                for chart in &config.charts {
+                    debug!("Loading chart config with name: '{}'", chart.name);
+                    for series in &chart.sources {
+                        debug!(" - Loading series with name: '{}'", series.name());
+                    }
+                }
+                config
+            }
+        }
+    }
 }
