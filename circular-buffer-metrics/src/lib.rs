@@ -321,8 +321,7 @@ impl Decoration {
         }
     }
 
-    /// `opengl_vertices` is the representation of the decoration in opengl
-    /// These are for now GL_LINES and 2D
+    /// `update_opengl_vertices` calls the decoration update methods
     fn update_opengl_vertices(
         &mut self,
         display_size: SizeInfo,
