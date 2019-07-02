@@ -1,85 +1,122 @@
 //! Loads prometheus metrics every now and then and displays stats
+use circular_buffer_metrics::config::Config;
+use circular_buffer_metrics::prometheus;
+use circular_buffer_metrics::TimeSeriesChart;
+use circular_buffer_metrics::TimeSeriesSource;
 use env_logger::Env;
 use futures::future::lazy;
-use futures::sync::mpsc;
+use futures::sync::{mpsc, oneshot};
 use log::*;
-use std::path::PathBuf;
+use std::thread;
 use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
-fn load_config_file() -> circular_buffer_metrics::config::Config {
-    let config_location = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
-    let config_res = circular_buffer_metrics::config::Config::read_config(&config_location);
-    match config_res {
-        Err(err) => {
-            error!(
-                "Unable to load config from file: {:?}: '{}'",
-                config_location, err
-            );
-            circular_buffer_metrics::config::Config::default()
-        }
-        Ok(config) => {
-            info!("Loaded config from file: {:?}", config_location);
-            for chart in &config.charts {
-                debug!("Loading chart config with name: '{}'", chart.name);
-                for series in &chart.sources {
-                    debug!(" - Loading series with name: '{}'", series.name());
-                }
-            }
-            config
-        }
-    }
-}
-
-/// `AsyncMetricItemData` contains a way to address a response to a particular
-/// item in our TimeSeriesCharts
+/// `MetricRequest` contains a way to address a particular
+/// item in our TimeSeriesCharts vectors
 #[derive(Debug, Clone)]
-pub struct AsyncMetricItemData {
+pub struct MetricRequest {
     pull_interval: u64,
     source_url: String,
     chart_index: usize,  // For Vec<TimeSeriesChart>
     series_index: usize, // For Vec<TimeSeriesSource>
-    data: Option<circular_buffer_metrics::prometheus::HTTPResponse>,
-    capacity: usize,
+    data: Option<prometheus::HTTPResponse>,
+    capacity: usize, // This maps to the time range in seconds to query.
 }
 
-fn async_coordinator(
-    rx: mpsc::Receiver<AsyncMetricItemData>,
-    charts: Vec<circular_buffer_metrics::TimeSeriesChart>,
+/// `AsyncChartTask` contains message types that async_coordinator can work on
+#[derive(Debug, Clone)]
+pub enum AsyncChartTask {
+    LoadResponse(MetricRequest),
+    GetOpenGL(usize, oneshot::Sender<Vec<f32>>),
+}
+
+/// `load_http_response` is called by async_coordinator when a task of type
+/// LoadResponse is received
+pub fn load_http_response(charts: &mut Vec<TimeSeriesChart>, response: MetricRequest) {
+    if let Some(data) = response.data {
+        if response.chart_index < charts.len()
+            && response.series_index < charts[response.chart_index].sources.len()
+        {
+            if let TimeSeriesSource::PrometheusTimeSeries(ref mut prom) =
+                charts[response.chart_index].sources[response.series_index]
+            {
+                match prom.load_prometheus_response(data) {
+                    Ok(num_records) => {
+                        info!(
+                            "Loaded {} records from {} into TimeSeries",
+                            num_records, response.source_url
+                        );
+                    }
+                    Err(err) => {
+                        debug!(
+                            "Error from {} into TimeSeries: {:?}",
+                            response.source_url, err
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `get_opengl_vecs` is called by async_coordinator when an task or type GetOpenGL
+/// is received, it should contain the chart index to represent
+pub fn get_opengl_vecs(
+    charts: &Vec<TimeSeriesChart>,
+    chart_index: usize,
+    channel: oneshot::Sender<Vec<f32>>,
 ) -> impl Future<Item = (), Error = ()> {
-    rx.for_each(move |response| {
-        debug!("Coordinator Got response: {:?}", response);
+    channel
+        .send(if chart_index < charts.len() {
+            vec![]
+        } else {
+            charts[chart_index].series_opengl_vecs
+        })
+        .map_err(|e| error!("get_opengl_vecs; err={:?}", e))
+}
+
+/// `async_coordinator` receives messages from the tasks about data loaded from
+/// the network, it owns the charts data.
+fn async_coordinator(
+    rx: mpsc::Receiver<AsyncChartTask>,
+    mut charts: Vec<TimeSeriesChart>,
+) -> impl Future<Item = (), Error = ()> {
+    rx.for_each(move |message| {
+        debug!("Coordinator Got response: {:?}", message);
+        match message {
+            AsyncChartTask::LoadResponse(req) => load_http_response(&mut charts, req),
+            AsyncChartTask::GetOpenGL(chart_index, channel) => {
+                get_opengl_vecs(&charts, chart_index, channel)
+            }
+        };
         Ok(())
     })
 }
 
-/// `fetch_prometheus_response` creates intervals for each series requested
-/// Each series will have to reply to a mspc tx with the data
+/// `fetch_prometheus_response` gets data from prometheus and once data is ready
+/// it sends the results to the coordinator.
 fn fetch_prometheus_response(
-    item: AsyncMetricItemData,
-    tx: mpsc::Sender<AsyncMetricItemData>,
+    item: MetricRequest,
+    tx: mpsc::Sender<AsyncChartTask>,
 ) -> impl Future<Item = (), Error = ()> {
-    let url = circular_buffer_metrics::prometheus::PrometheusTimeSeries::prepare_url(
-        &item.source_url,
-        item.capacity as u64,
-    )
-    .unwrap();
-    circular_buffer_metrics::prometheus::get_from_prometheus(url.clone())
+    let url = prometheus::PrometheusTimeSeries::prepare_url(&item.source_url, item.capacity as u64)
+        .unwrap();
+    prometheus::get_from_prometheus(url.clone())
         .timeout(Duration::from_secs(item.pull_interval))
         .map_err(|e| error!("get_from_prometheus; err={:?}", e))
         .and_then(move |value| {
             debug!("Got prometheus raw value={:?}", value);
-            let res = circular_buffer_metrics::prometheus::parse_json(&value);
+            let res = prometheus::parse_json(&value);
             debug!("Parsed JSON to res={:?}", res);
-            tx.send(AsyncMetricItemData {
+            tx.send(AsyncChartTask::LoadResponse(MetricRequest {
                 source_url: item.source_url.clone(),
                 chart_index: item.chart_index,
                 series_index: item.series_index,
                 pull_interval: item.pull_interval,
                 data: res.clone(),
                 capacity: item.capacity,
-            })
+            }))
             .map_err(|e| {
                 error!(
                     "fetch_prometheus_response: send data back to coordinator; err={:?}",
@@ -96,14 +133,14 @@ fn fetch_prometheus_response(
 /// `spawn_interval_polls` creates intervals for each series requested
 /// Each series will have to reply to a mspc tx with the data
 fn spawn_interval_polls(
-    item: &AsyncMetricItemData,
-    tx: mpsc::Sender<AsyncMetricItemData>,
+    item: &MetricRequest,
+    tx: mpsc::Sender<AsyncChartTask>,
 ) -> impl Future<Item = (), Error = ()> {
     Interval::new(Instant::now(), Duration::from_secs(item.pull_interval))
-        .take(10) //  Test 10 times first
+        //.take(10) //  Test 10 times first
         .map_err(|e| panic!("interval errored; err={:?}", e))
         .fold(
-            AsyncMetricItemData {
+            MetricRequest {
                 source_url: item.source_url.clone(),
                 chart_index: item.chart_index,
                 series_index: item.series_index,
@@ -120,23 +157,6 @@ fn spawn_interval_polls(
                     debug!("Got response {:?}", res);
                     Ok(async_metric_item)
                 })
-                // .map_err(|e| panic!("Get from prometheus err={:?}", e));
-                //                            .and_then(|value| {
-                //                                if let Some(prom_response) = value {
-                //                                    match prom.load_prometheus_response(prom_response) {
-                //                                        Ok(num_records) => {
-                //                                            info!(" - Loaded {} records", num_records);
-                //                                        }
-                //                                        Err(err) => {
-                //                                            error!(
-                //                                                " - Error loading prometheus response: '{}'",
-                //                                                err
-                //                                            );
-                //                                        }
-                //                                    }
-                //                                }
-                //                            });
-                //Ok(prom)
             },
         )
         .map(|_| ())
@@ -144,23 +164,21 @@ fn spawn_interval_polls(
 fn main() {
     println!("Starting program");
     env_logger::from_env(Env::default().default_filter_or("info")).init();
-    let config = load_config_file();
+    let config = Config::load_config_file();
     let mut chart_index = 0usize;
-    tokio::run(lazy(move || {
+    let (tx, rx) = mpsc::channel(4_096usize);
+    tokio::spawn(lazy(move || {
         // Create the channel that is used to communicate with the
         // background task.
-        let (tx, rx) = mpsc::channel(4_096usize);
         let charts = config.charts.clone();
         tokio::spawn(lazy(move || async_coordinator(rx, charts)));
         for chart in config.charts {
             debug!("Loading chart series with name: '{}'", chart.name);
             let mut series_index = 0usize;
             for series in chart.sources {
-                if let circular_buffer_metrics::TimeSeriesSource::PrometheusTimeSeries(ref prom) =
-                    series
-                {
+                if let TimeSeriesSource::PrometheusTimeSeries(ref prom) = series {
                     debug!(" - Found time_series, adding interval run");
-                    let data_request = AsyncMetricItemData {
+                    let data_request = MetricRequest {
                         source_url: prom.source.clone(),
                         pull_interval: prom.pull_interval as u64,
                         chart_index,
@@ -177,5 +195,25 @@ fn main() {
         }
         Ok(())
     }));
+    let tx = tx.clone();
+    loop {
+        let one_second = Duration::from_secs(1);
+        let now = Instant::now();
+        thread::sleep(one_second);
+        for (idx, chart) in config.charts.iter().enumerate() {
+            let (opengl_tx, opengl_rx) = oneshot::channel();
+            tx.send(AsyncChartTask::GetOpenGL(idx))
+                .map_err(|e| {
+                    error!(
+                        "Loading OpenGL representation from coordinator: err={:?}",
+                        e
+                    )
+                })
+                .and_then(|res| {
+                    info!("Got opengl for chart index: {} res={:?}", idx, res);
+                    Ok(())
+                });
+        }
+    }
     println!("Exiting.");
 }
