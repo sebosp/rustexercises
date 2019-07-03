@@ -7,7 +7,7 @@ use std::path::PathBuf;
 static DEFAULT_CHART_CONFIG: &'static str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/charts.yml"));
 /// Top-level config type
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize, Clone)]
 pub struct Config {
     pub charts: Vec<crate::TimeSeriesChart>,
 }
