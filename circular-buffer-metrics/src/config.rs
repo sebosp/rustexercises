@@ -51,13 +51,14 @@ impl Config {
                 Config::default()
             }
             Ok(config) => {
-                info!("Loaded config from file: {:?}", config_location);
+                info!("load_config_file: {:?}", config_location);
                 for chart in &config.charts {
-                    debug!("Loading chart config with name: '{}'", chart.name);
+                    debug!("load_config_file chart config with name: '{}'", chart.name);
                     for series in &chart.sources {
-                        debug!(" - Loading series with name: '{}'", series.name());
+                        debug!(" - load_config_file series with name: '{}'", series.name());
                     }
                 }
+                debug!("Finished load_config_file");
                 config
             }
         }
