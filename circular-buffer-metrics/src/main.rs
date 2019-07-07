@@ -1,6 +1,7 @@
 //! Loads prometheus metrics every now and then and displays stats
 use circular_buffer_metrics::config::Config;
 use circular_buffer_metrics::prometheus;
+use circular_buffer_metrics::SizeInfo; // XXX: remove on merge.
 use circular_buffer_metrics::TimeSeriesChart;
 use circular_buffer_metrics::TimeSeriesSource;
 use env_logger::Env;
@@ -56,6 +57,13 @@ pub fn load_http_response(charts: &mut Vec<TimeSeriesChart>, response: MetricReq
                     }
                 }
             }
+            charts[response.chart_index].update_opengl_vecs(SizeInfo {
+                padding_x: 0.,
+                padding_y: 0.,
+                height: 100.,
+                width: 100.,
+                ..SizeInfo::default()
+            });
         }
     }
 }
@@ -73,7 +81,19 @@ pub fn get_opengl_vecs(
     } else {
         charts[chart_index].series_opengl_vecs.clone()
     }) {
-        Ok(()) => debug!("get_opengl_vecs: message sent properly"),
+        Ok(()) => {
+            if chart_index > charts.len() {
+                debug!(
+                    "get_opengl_vecs: oneshot::message sent for {}[OutOfBounds]",
+                    chart_index
+                );
+            } else {
+                debug!(
+                    "get_opengl_vecs: oneshot::message sent for {}[InsideBounds]",
+                    chart_index
+                );
+            }
+        }
         Err(err) => error!("get_opengl_vecs: Error sending: {:?}", err),
     };
     /*.and_then(|_| {
@@ -94,7 +114,7 @@ fn async_coordinator(
 ) -> impl Future<Item = (), Error = ()> {
     debug!("async_coordinator: Starting");
     rx.for_each(move |message| {
-        debug!("Coordinator Got message: {:?}", message);
+        info!("Coordinator Got message: {:?}", message);
         match message {
             AsyncChartTask::LoadResponse(req) => load_http_response(&mut charts, req),
             AsyncChartTask::GetOpenGL(chart_index, channel) => {
@@ -186,7 +206,6 @@ fn main() {
     let (tx, rx) = mpsc::channel(4_096usize);
     let poll_tx = tx.clone();
     tokio::run(lazy(move || {
-        debug!("SEB");
         tokio::spawn(lazy(move || async_coordinator(rx, charts)));
         for chart in config.charts {
             debug!("Loading chart series with name: '{}'", chart.name);
@@ -209,40 +228,37 @@ fn main() {
             }
             chart_index += 1;
         }
-        tokio::spawn(lazy(move || {
-            let mut counter = 0;
-            loop {
-                let one_second = Duration::from_secs(1);
-                info!("Starting to load data from async_coordinator");
-                thread::sleep(one_second);
-                for idx in 0..collected_data.charts.len() {
-                    let (opengl_tx, opengl_rx) = oneshot::channel();
-                    let get_opengl_task = tx
-                        .clone()
-                        .send(AsyncChartTask::GetOpenGL(idx, opengl_tx))
-                        .map_err(|e| {
-                            error!(
-                                "Loading OpenGL representation from coordinator: err={:?}",
-                                e
-                            )
-                        })
-                        .and_then(move |res| {
-                            info!("Sent GetOpenGL Task for chart index: {} res={:?}", idx, res);
-                            opengl_rx
-                                .map(|data| {
-                                    info!("Got response from GetOpenGL Task: {:?}", data);
-                                })
-                                .map_err(|_| ())
-                        });
-                    tokio::spawn(lazy(|| get_opengl_task));
+        let mut counter = 0;
+        loop {
+            let one_second = Duration::from_secs(1);
+            info!("Starting to load data from async_coordinator");
+            thread::sleep(one_second);
+            for idx in 0..collected_data.charts.len() {
+                let (opengl_tx, opengl_rx) = oneshot::channel();
+                let get_opengl_task = tx
+                    .clone()
+                    .send(AsyncChartTask::GetOpenGL(idx, opengl_tx))
+                    .map_err(|e| error!("Sending GetOpenGL Task: err={:?}", e))
+                    .and_then(move |_res| {
+                        debug!("Sent GetOpenGL Task for chart index: {}", idx);
+                        Ok(())
+                    });
+                tokio::spawn(lazy(|| get_opengl_task));
+                let opengl_rx = opengl_rx.map(|x| x);
+                match opengl_rx.wait() {
+                    Ok(data) => {
+                        debug!("Got response from GetOpenGL Task: {:?}", data);
+                    }
+                    Err(err) => {
+                        error!("Error response from GetOpenGL Task: {:?}", err);
+                    }
                 }
-                if counter > 100 {
-                    break;
-                }
-                counter += 1;
             }
-            Ok(())
-        }));
+            if counter > 100 {
+                break;
+            }
+            counter += 1;
+        }
         Ok(())
     }));
     println!("Exiting.");
