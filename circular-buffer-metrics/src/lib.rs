@@ -432,12 +432,12 @@ pub struct Value2D {
 /// `SizeInfo` is a copy of the Alacritty SizeInfo, XXX: remove on merge.
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub struct SizeInfo {
-    width: f32,
-    height: f32,
-    cell_width: f32,
-    cell_height: f32,
-    padding_x: f32,
-    padding_y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub cell_width: f32,
+    pub cell_height: f32,
+    pub padding_x: f32,
+    pub padding_y: f32,
 }
 
 impl SizeInfo {
