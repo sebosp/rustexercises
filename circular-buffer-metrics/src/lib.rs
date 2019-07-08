@@ -11,16 +11,17 @@
 // -- Add min/max time to query.
 // -- Move to config.yaml
 // -- The yaml should drive an array of activity dashboards
-// IN PROGRESS:
+// -- Tokio timers
 // -- Use prometheus queries instead of our own aggregation/etc.
-// -- Group labels into separate colors (find something that does color spacing in rust)
+// IN PROGRESS:
 // -- Logging
+// -- Group labels into separate colors (find something that does color spacing in rust)
 // TODO:
 // -- The dashboards should be toggable, some key combination
 // -- When activated on toggle it could blur a portion of the screen
 // -- derive builder
 // -- mock the prometheus server and response
-// -- Tokio timers
+// -- We should re-use the circular_push for the opengl_vec
 
 #[macro_use]
 extern crate log;
@@ -509,9 +510,13 @@ impl TimeSeriesChart {
     pub fn update_opengl_vecs(&mut self, display_size: SizeInfo) {
         debug!("Chart: Starting update_opengl_vecs");
         // Get the opengl representation of the vector
-        let opengl_vecs_len = self.sources.iter().fold(0usize, |acc: usize, source| {
-            acc + source.series().active_items
+        let opengl_vecs_capacity = self.sources.iter().fold(0usize, |acc: usize, source| {
+            acc + (source.series().active_items * 2) // Times two because X,Y coords
         });
+        if opengl_vecs_capacity > self.series_opengl_vecs.capacity() {
+            self.series_opengl_vecs
+                .reserve(opengl_vecs_capacity - self.series_opengl_vecs.capacity());
+        }
         for source in &mut self.sources {
             if source.series().stats.is_dirty {
                 debug!(
@@ -527,14 +532,15 @@ impl TimeSeriesChart {
             debug!("Chart: Adding width of decoration: {}", decoration.width());
             decorations_space += decoration.width();
         }
+        let mut idx = 0usize;
         for source in self.sources.iter() {
-            let idx = 0usize;
             let missing_values_fill = source.series().get_missing_values_fill();
             debug!(
                 "Chart: Using {} to fill missing values",
                 missing_values_fill
             );
-            // Calculate the tick spacing
+            // Calculate the tick spacing XXX: This is 0 because the default() has no
+            // metrics_capacity
             let tick_spacing =
                 (self.width - decorations_space) / source.series().metrics_capacity as f32;
             debug!("Chart: Using tick_spacing {}", tick_spacing);
@@ -550,14 +556,15 @@ impl TimeSeriesChart {
                 let scaled_y = display_size.scale_y(self.stats.max, y_value);
                 // Adding twice to a vec, could this be made into one operation? Is this slow?
                 // need to transform activity line values from varying levels into scaled [-1, 1]
-                if (idx + 1) * 2 > opengl_vecs_len {
+                // XXX: Move to Circular Buffer
+                if (idx + 1) * 2 > self.series_opengl_vecs.len() {
                     self.series_opengl_vecs.push(scaled_x);
                     self.series_opengl_vecs.push(scaled_y);
                 } else {
-                    // XXX: This needs fixing
                     self.series_opengl_vecs[idx * 2] = scaled_x;
                     self.series_opengl_vecs[idx * 2 + 1] = scaled_y;
                 }
+                idx += 1;
             }
         }
         for decoration in &mut self.decorations {
@@ -871,6 +878,9 @@ impl<'a> Iterator for IterTimeSeries<'a> {
 mod tests {
     use super::*;
 
+    fn init_log() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
     #[test]
     fn it_pushes_circular_buffer() {
         // The circular buffer inserts rotating the first and last index
@@ -1205,15 +1215,34 @@ mod tests {
         let mid = size_test.scale_y(100f64, 50f64);
         assert_eq!(mid, 1.0f32);
     }
-    // let size = SizeInfo{
-    // width: 100f32,
-    // height: 100f32,
-    // cell_width: 1f32,
-    // cell_height: 1f32,
-    // padding_x: 0f32,
-    // padding_y: 0f32,
-    // dpr: 1f64
-    // };
+
+    #[test]
+    fn it_updates_opengl_vertices() {
+        init_log();
+        let size_test = SizeInfo {
+            padding_x: 0.,
+            padding_y: 0.,
+            height: 100., // Display Height: 100px test
+            width: 100.,  // Display Width: 100px test
+            ..SizeInfo::default()
+        };
+        let mut chart_test = TimeSeriesChart::default();
+        chart_test.sources.push(TimeSeriesSource::default());
+        chart_test.sources[0]
+            .series_mut()
+            .circular_push((10, Some(0f64)));
+        chart_test.sources[0]
+            .series_mut()
+            .circular_push((11, Some(1f64)));
+        chart_test.sources[0]
+            .series_mut()
+            .circular_push((12, Some(2f64)));
+        chart_test.sources[0]
+            .series_mut()
+            .circular_push((13, Some(3f64)));
+        chart_test.update_opengl_vecs(size_test);
+        assert_eq!(chart_test.series_opengl_vecs, vec![0., 0., 0., 0., 0., 0.]);
+    }
 }
 // `draw` sends the time series representation of the TimeSeries to OpenGL
 // context, this shouldn't be mut
