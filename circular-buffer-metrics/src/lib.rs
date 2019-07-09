@@ -23,7 +23,6 @@
 // -- mock the prometheus server and response
 // -- We should re-use the circular_push for the opengl_vec
 
-#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde_derive;
@@ -358,10 +357,6 @@ pub struct ManualTimeSeries {
     #[serde(default)]
     pub series: TimeSeries,
 
-    /// The capacity (amount of entries to store)
-    #[serde(default)]
-    pub capacity: usize,
-
     /// The granularity to store
     #[serde(default)]
     pub granularity: u64,
@@ -372,8 +367,7 @@ impl Default for ManualTimeSeries {
         ManualTimeSeries {
             name: String::from("unkown"),
             series: TimeSeries::default(),
-            capacity: 300usize, // 5 minutes
-            granularity: 1,     // 1 second
+            granularity: 1, // 1 second
         }
     }
 }
@@ -517,6 +511,7 @@ impl TimeSeriesChart {
             self.series_opengl_vecs
                 .reserve(opengl_vecs_capacity - self.series_opengl_vecs.capacity());
         }
+        debug!("Chart: Needed OpenGL capacity: {}", opengl_vecs_capacity);
         for source in &mut self.sources {
             if source.series().stats.is_dirty {
                 debug!(
@@ -532,15 +527,18 @@ impl TimeSeriesChart {
             debug!("Chart: Adding width of decoration: {}", decoration.width());
             decorations_space += decoration.width();
         }
+        debug!(
+            "Chart: width: {}, decoration_space: decorations_space: {}",
+            self.width, decorations_space
+        );
         let mut idx = 0usize;
         for source in self.sources.iter() {
             let missing_values_fill = source.series().get_missing_values_fill();
             debug!(
-                "Chart: Using {} to fill missing values",
-                missing_values_fill
+                "Chart: Using {} to fill missing values. Metrics capacity: {}",
+                missing_values_fill,
+                source.series().metrics_capacity
             );
-            // Calculate the tick spacing XXX: This is 0 because the default() has no
-            // metrics_capacity
             let tick_spacing =
                 (self.width - decorations_space) / source.series().metrics_capacity as f32;
             debug!("Chart: Using tick_spacing {}", tick_spacing);
@@ -622,7 +620,6 @@ impl TimeSeriesChart {
 }
 
 impl Default for TimeSeries {
-    /// `new` returns the default
     fn default() -> TimeSeries {
         // This leads to 5 mins of metrics to show by default.
         let default_capacity = 300usize;
@@ -1222,12 +1219,21 @@ mod tests {
         let size_test = SizeInfo {
             padding_x: 0.,
             padding_y: 0.,
-            height: 100., // Display Height: 100px test
-            width: 100.,  // Display Width: 100px test
+            height: 200., // Display Height: 200px test
+            width: 200.,  // Display Width: 200px test
             ..SizeInfo::default()
         };
         let mut chart_test = TimeSeriesChart::default();
         chart_test.sources.push(TimeSeriesSource::default());
+        chart_test.width = 10.;
+        chart_test.height = 10.;
+        // |             |   -
+        // |             |   |
+        // |             |   200
+        // |             |   |
+        // |XX           |   -
+        //
+        // |---- 200 ----|
         chart_test.sources[0]
             .series_mut()
             .circular_push((10, Some(0f64)));
@@ -1241,7 +1247,10 @@ mod tests {
             .series_mut()
             .circular_push((13, Some(3f64)));
         chart_test.update_opengl_vecs(size_test);
-        assert_eq!(chart_test.series_opengl_vecs, vec![0., 0., 0., 0., 0., 0.]);
+        assert_eq!(
+            chart_test.series_opengl_vecs,
+            vec![-1.0, 0., -0.9, 0., -0.8, 0., -0.7, 0.]
+        );
     }
 }
 // `draw` sends the time series representation of the TimeSeries to OpenGL
