@@ -1227,6 +1227,9 @@ mod tests {
         chart_test.sources.push(TimeSeriesSource::default());
         chart_test.width = 10.;
         chart_test.height = 10.;
+        // Test with 10 items only
+        // So that every item takes 0.01
+        chart_test.sources[0].series_mut().metrics_capacity = 10;
         // |             |   -
         // |             |   |
         // |             |   200
@@ -1245,11 +1248,24 @@ mod tests {
             .circular_push((12, Some(2f64)));
         chart_test.sources[0]
             .series_mut()
-            .circular_push((13, Some(3f64)));
+            .circular_push((13, Some(4f64))); // This makes the top value 4
+                                              // The current display (10% at the bottom left) should be divided
+                                              // between 4 and 1.
+                                              // metric(4) is -0.9
+                                              // metric(0) is -1.0
         chart_test.update_opengl_vecs(size_test);
         assert_eq!(
             chart_test.series_opengl_vecs,
-            vec![-1.0, 0., -0.9, 0., -0.8, 0., -0.7, 0.]
+            vec![
+                -1.0,  // 1st X value, leftmost.
+                -1.0,  // Y value is 0, so -1.0 is the bottom-most
+                -0.99, // X minus 0.01
+                -0.98, // Y value is 1, so
+                -0.98, // leftmost minus  0.01 * 2
+                0.,    // To be calculated manually
+                -0.97, // leftmost minus 0.01 * 3
+                0.9    // Top-most value
+            ]
         );
     }
 }
