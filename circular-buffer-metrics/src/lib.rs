@@ -597,7 +597,11 @@ impl TimeSeriesChart {
                 min_activity_value = source.series().stats.min;
             }
             sum_activity_values += source.series().stats.sum;
-            filled_stats += 1;
+            for series_idx in source.series().as_vec() {
+                if series_idx.1.is_some() {
+                    filled_stats += 1;
+                }
+            }
         }
         // Account for the decoration requested height
         for decoration in &self.decorations {
@@ -615,7 +619,10 @@ impl TimeSeriesChart {
         self.stats.sum = sum_activity_values;
         self.stats.avg = sum_activity_values / filled_stats as f64;
         self.stats.is_dirty = false;
-        debug!("Chart: Updated statistics to: {:?}", self.stats);
+        debug!(
+            "Chart: Updated statistics to: {:?}, filled_stats: {:?}",
+            self.stats, filled_stats
+        );
     }
 }
 
