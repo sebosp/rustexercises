@@ -429,6 +429,8 @@ pub struct Value2D {
 pub struct SizeInfo {
     pub width: f32,
     pub height: f32,
+    pub chart_width: f32,
+    pub chart_height: f32,
     pub cell_width: f32,
     pub cell_height: f32,
     pub padding_x: f32,
@@ -452,7 +454,7 @@ impl SizeInfo {
         let center_y = self.height / 2.;
         let y = self.height
             - 2. * self.padding_y
-            - (self.height * (input_value as f32) / max_value as f32);
+            - (self.chart_height * (input_value as f32 / max_value as f32));
         -(y - center_y) / center_y
     }
 }
@@ -502,6 +504,9 @@ impl TimeSeriesChart {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
     pub fn update_opengl_vecs(&mut self, display_size: SizeInfo) {
+        let mut display_size = display_size;
+        display_size.chart_height = self.height;
+        display_size.chart_width = self.width;
         debug!("Chart: Starting update_opengl_vecs");
         // Get the opengl representation of the vector
         let opengl_vecs_capacity = self.sources.iter().fold(0usize, |acc: usize, source| {
@@ -1190,6 +1195,7 @@ mod tests {
             padding_x: 0.,
             padding_y: 0.,
             height: 100.,
+            chart_height: 100.,
             ..SizeInfo::default()
         };
         let mut chart_test = TimeSeriesChart::default();
@@ -1259,19 +1265,20 @@ mod tests {
                                               // The current display (10% at the bottom left) should be divided
                                               // between 4 and 1.
                                               // metric(4) is -0.9
+                                              // Each metric unit (From 0 to 4) will be 0.025
                                               // metric(0) is -1.0
         chart_test.update_opengl_vecs(size_test);
         assert_eq!(
             chart_test.series_opengl_vecs,
             vec![
-                -1.0,  // 1st X value, leftmost.
-                -1.0,  // Y value is 0, so -1.0 is the bottom-most
-                -0.99, // X minus 0.01
-                -0.98, // Y value is 1, so
-                -0.98, // leftmost minus  0.01 * 2
-                0.,    // To be calculated manually
-                -0.97, // leftmost minus 0.01 * 3
-                0.9    // Top-most value
+                -1.0,   // 1st X value, leftmost.
+                -1.0,   // Y value is 0, so -1.0 is the bottom-most
+                -0.99,  // X plus 0.01
+                -0.975, // Y value is 1, so
+                -0.98,  // leftmost plus  0.01 * 2
+                -0.95,  // Y value is 2, so halfway from bottom to top
+                -0.97,  // leftmost plus 0.01 * 3
+                -0.9    // Top-most value, so the chart height
             ]
         );
     }
