@@ -114,7 +114,7 @@ fn async_coordinator(
 ) -> impl Future<Item = (), Error = ()> {
     debug!("async_coordinator: Starting");
     rx.for_each(move |message| {
-        info!("Coordinator Got message: {:?}", message);
+        debug!("async_coordinator: message: {:?}", message);
         match message {
             AsyncChartTask::LoadResponse(req) => load_http_response(&mut charts, req),
             AsyncChartTask::GetOpenGL(chart_index, channel) => {
@@ -231,7 +231,6 @@ fn main() {
         let mut counter = 0;
         loop {
             let one_second = Duration::from_secs(1);
-            info!("Starting to load data from async_coordinator");
             thread::sleep(one_second);
             for idx in 0..collected_data.charts.len() {
                 let (opengl_tx, opengl_rx) = oneshot::channel();
