@@ -199,7 +199,7 @@ impl Default for ReferencePointDecoration {
                 x: 10f32,
                 y: 0f32, // No top/bottom padding
             },
-            opengl_data: vec![0.; 12],
+            opengl_data: vec![],
         }
     }
 }
@@ -232,7 +232,10 @@ impl ReferencePointDecoration {
         chart_width: f32,
         chart_max_value: f64,
     ) {
-        debug!("Starting update_opengl_vertices");
+        debug!("ReferencePointDecoration: Starting update_opengl_vertices");
+        if 12 != self.opengl_data.capacity() {
+            self.opengl_data = vec![0.; 12];
+        }
         // The vertexes of the above marker idea can be represented as
         // connecting lines for these coordinates:
         //         |Actual Draw Metric Data|
@@ -270,7 +273,10 @@ impl ReferencePointDecoration {
         self.opengl_data[9] = y3;
         self.opengl_data[10] = x2;
         self.opengl_data[11] = y2;
-        debug!("Finished update_opengl_vertices: {:?}", self.opengl_data);
+        debug!(
+            "ReferencePointDecoration: Finished update_opengl_vertices: {:?}",
+            self.opengl_data
+        );
     }
 }
 
@@ -504,10 +510,10 @@ impl TimeSeriesChart {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
     pub fn update_opengl_vecs(&mut self, display_size: SizeInfo) {
+        debug!("Chart: Starting update_opengl_vecs");
         let mut display_size = display_size;
         display_size.chart_height = self.height;
         display_size.chart_width = self.width;
-        debug!("Chart: Starting update_opengl_vecs");
         // Get the opengl representation of the vector
         let opengl_vecs_capacity = self.sources.iter().fold(0usize, |acc: usize, source| {
             acc + (source.series().active_items * 2) // Times two because X,Y coords
@@ -533,7 +539,7 @@ impl TimeSeriesChart {
             decorations_space += decoration.width();
         }
         debug!(
-            "Chart: width: {}, decoration_space: decorations_space: {}",
+            "Chart: width: {}, decorations_space: {}",
             self.width, decorations_space
         );
         let mut idx = 0usize;
@@ -1259,14 +1265,17 @@ mod tests {
         chart_test.sources[0]
             .series_mut()
             .circular_push((12, Some(2f64)));
+        // Let's make a None value and check the MissingValuesPolicy
+        chart_test.sources[0].series_mut().circular_push((14, None));
+        // This makes the top value 4
         chart_test.sources[0]
             .series_mut()
-            .circular_push((13, Some(4f64))); // This makes the top value 4
-                                              // The current display (10% at the bottom left) should be divided
-                                              // between 4 and 1.
-                                              // metric(4) is -0.9
-                                              // Each metric unit (From 0 to 4) will be 0.025
-                                              // metric(0) is -1.0
+            .circular_push((15, Some(4f64)));
+        // The current display (10% at the bottom left) should be divided
+        // between 4 and 1.
+        // metric(4) is -0.9
+        // Each metric unit (From 0 to 4) will be 0.025
+        // metric(0) is -1.0
         chart_test.update_opengl_vecs(size_test);
         assert_eq!(
             chart_test.series_opengl_vecs,
@@ -1274,10 +1283,12 @@ mod tests {
                 -1.0,   // 1st X value, leftmost.
                 -1.0,   // Y value is 0, so -1.0 is the bottom-most
                 -0.99,  // X plus 0.01
-                -0.975, // Y value is 1, so
+                -0.975, // Y value is 1, so 25% of the line
                 -0.98,  // leftmost plus  0.01 * 2
-                -0.95,  // Y value is 2, so halfway from bottom to top
+                -0.95,  // Y value is 2, so 50% from bottom to top
                 -0.97,  // leftmost plus 0.01 * 3
+                -1.0,   // Top-most value, so the chart height
+                -0.96,  // leftmost plus 0.01 * 4
                 -0.9    // Top-most value, so the chart height
             ]
         );
@@ -1293,58 +1304,6 @@ mod tests {
 // context. This function is called previous to sending the vector data.
 // This seems to be part of src/renderer/ mod tho...
 // fn init_opengl_context(&self);
-// }
-//
-// `ActivityLevels` keep track of the activity per time tick
-// Currently this is a second as we use UNIX_EPOCH
-// #[derive(Debug, Clone)]
-// pub struct ActivityLevels<T>
-// where T: Num + Clone + Copy
-// {
-// Capture events/characters per second
-// Contains one entry per second
-// pub activity_levels: Vec<T>,
-//
-// Last Activity Time
-// pub last_activity_time: u64,
-//
-// Max activity ticks to show, ties to the activity_levels array
-// it should cause it to throw away old items for newer records
-// pub max_activity_ticks: usize,
-//
-// The color of the activity_line
-// pub color: Rgb,
-//
-// The offset in which the activity line should be drawn
-// pub x_offset: f32,
-//
-// The width of the activity chart/histogram
-// pub width: f32,
-//
-// The opengl representation of the activity levels
-// Contains twice as many items because it's x,y
-// pub activity_opengl_vecs: Vec<f32>,
-//
-// The height of the activity line region
-// pub activity_line_height: f32,
-//
-// The spacing between the activity line segments, could be renamed to line length
-// pub activity_tick_spacing: f32,
-//
-// The transparency of the activity line
-// pub alpha: f32,
-//
-// A marker line to indicate a reference point, for example for load
-// to show where the 1 loadavg is, or to show disk capacity
-// pub marker_line: Option<T>,
-//
-// The opengl representation of the activity levels
-// Contains twice as many items because it's x,y
-// pub marker_line_vecs: Vec<f32>,
-//
-// Missing values can be set to zero
-// to show where the 1 task per core is
-// pub missing_values_policy: MissingValuesPolicy<T>,
 // }
 //
 // impl<T> Default for ActivityLevels<T>
