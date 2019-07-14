@@ -223,16 +223,15 @@ impl ReferencePointDecoration {
         self.value - self.value * self.height_multiplier
     }
 
-    /// `update_opengl_vertices` Draws a marker at a fixed position for
+    /// `update_opengl_vecs` Draws a marker at a fixed position for
     /// reference.
-    pub fn update_opengl_vertices(
+    pub fn update_opengl_vecs(
         &mut self,
         display_size: SizeInfo,
         offset: Value2D,
-        chart_width: f32,
         chart_max_value: f64,
     ) {
-        debug!("ReferencePointDecoration: Starting update_opengl_vertices");
+        debug!("ReferencePointDecoration: Starting update_opengl_vecs");
         if 12 != self.opengl_data.capacity() {
             self.opengl_data = vec![0.; 12];
         }
@@ -248,7 +247,7 @@ impl ReferencePointDecoration {
         //
         // Calculate X coordinates:
         let x1 = display_size.scale_x(offset.x);
-        let x2 = display_size.scale_x(offset.x + chart_width);
+        let x2 = display_size.scale_x(offset.x + display_size.chart_width);
 
         // Calculate Y, the marker hints are 10% of the current values
         // This means that the
@@ -274,7 +273,7 @@ impl ReferencePointDecoration {
         self.opengl_data[10] = x2;
         self.opengl_data[11] = y2;
         debug!(
-            "ReferencePointDecoration: Finished update_opengl_vertices: {:?}",
+            "ReferencePointDecoration: Finished update_opengl_vecs: {:?}",
             self.opengl_data
         );
     }
@@ -327,24 +326,23 @@ impl Decoration {
         }
     }
 
-    /// `update_opengl_vertices` calls the decoration update methods
-    fn update_opengl_vertices(
+    /// `update_opengl_vecs` calls the decoration update methods
+    fn update_opengl_vecs(
         &mut self,
         display_size: SizeInfo,
         offset: Value2D,
-        chart_width: f32,
         chart_max_value: f64,
     ) {
         match self {
             Decoration::Reference(ref mut d) => {
-                d.update_opengl_vertices(display_size, offset, chart_width, chart_max_value)
+                d.update_opengl_vecs(display_size, offset, chart_max_value)
             }
             Decoration::None => (),
         }
     }
     /// `opengl_vertices` returns the representation of the decoration in
     /// opengl. These are for now GL_LINES and 2D
-    fn opengl_vertices(&mut self) -> Vec<f32> {
+    pub fn opengl_vertices(&mut self) -> Vec<f32> {
         match self {
             Decoration::Reference(d) => d.opengl_vertices(),
             Decoration::None => vec![],
@@ -389,6 +387,8 @@ pub enum TimeSeriesSource {
     AlacrittyInput(ManualTimeSeries),
     #[serde(rename = "alacritty_output")]
     AlacrittyOutput(ManualTimeSeries),
+    #[serde(rename = "async_items_loaded")]
+    AsyncLoadedItems(ManualTimeSeries),
 }
 
 impl Default for TimeSeriesSource {
@@ -403,6 +403,7 @@ impl TimeSeriesSource {
             TimeSeriesSource::PrometheusTimeSeries(x) => x.series.clone(),
             TimeSeriesSource::AlacrittyInput(x) => x.series.clone(),
             TimeSeriesSource::AlacrittyOutput(x) => x.series.clone(),
+            TimeSeriesSource::AsyncLoadedItems(x) => x.series.clone(),
         }
     }
     fn series_mut(&mut self) -> &mut TimeSeries {
@@ -410,6 +411,7 @@ impl TimeSeriesSource {
             TimeSeriesSource::PrometheusTimeSeries(x) => &mut x.series,
             TimeSeriesSource::AlacrittyInput(x) => &mut x.series,
             TimeSeriesSource::AlacrittyOutput(x) => &mut x.series,
+            TimeSeriesSource::AsyncLoadedItems(x) => &mut x.series,
         }
     }
     pub fn name(&self) -> String {
@@ -417,6 +419,7 @@ impl TimeSeriesSource {
             TimeSeriesSource::PrometheusTimeSeries(x) => x.name.clone(),
             TimeSeriesSource::AlacrittyInput(x) => x.name.clone(),
             TimeSeriesSource::AlacrittyOutput(x) => x.name.clone(),
+            TimeSeriesSource::AsyncLoadedItems(x) => x.name.clone(),
         }
     }
 }
@@ -578,12 +581,7 @@ impl TimeSeriesChart {
         }
         for decoration in &mut self.decorations {
             debug!("Chart: Updating decoration {:?} vertices", decoration);
-            decoration.update_opengl_vertices(
-                display_size,
-                self.offset,
-                self.width,
-                self.stats.max,
-            );
+            decoration.update_opengl_vecs(display_size, self.offset, self.stats.max);
         }
     }
 
@@ -858,7 +856,7 @@ impl TimeSeries {
         res
     }
 
-    fn push_current_epoch(&mut self, input: f64) {
+    pub fn push_current_epoch(&mut self, input: f64) {
         let now = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1232,8 +1230,7 @@ mod tests {
         assert_eq!(mid, 1.0f32);
     }
 
-    #[test]
-    fn it_updates_opengl_vertices() {
+    fn simple_chart_setup_with_none() -> (SizeInfo, TimeSeriesChart) {
         init_log();
         let size_test = SizeInfo {
             padding_x: 0.,
@@ -1276,6 +1273,12 @@ mod tests {
         // metric(4) is -0.9
         // Each metric unit (From 0 to 4) will be 0.025
         // metric(0) is -1.0
+        (size_test, chart_test)
+    }
+
+    #[test]
+    fn it_updates_opengl_vertices() {
+        let (size_test, mut chart_test) = simple_chart_setup_with_none();
         chart_test.update_opengl_vecs(size_test);
         assert_eq!(
             chart_test.series_opengl_vecs,
@@ -1283,186 +1286,52 @@ mod tests {
                 -1.0,   // 1st X value, leftmost.
                 -1.0,   // Y value is 0, so -1.0 is the bottom-most
                 -0.99,  // X plus 0.01
-                -0.975, // Y value is 1, so 25% of the line
+                -0.975, // Y value is 1, so 25% of the line, so 0.025
                 -0.98,  // leftmost plus  0.01 * 2
                 -0.95,  // Y value is 2, so 50% from bottom to top
                 -0.97,  // leftmost plus 0.01 * 3
                 -1.0,   // Top-most value, so the chart height
-                -0.96,  // leftmost plus 0.01 * 4
+                -0.96,  // leftmost plus 0.01 * 4, rightmost
                 -0.9    // Top-most value, so the chart height
             ]
         );
     }
+
+    #[test]
+    fn it_calculates_reference_point() {
+        let (size_test, mut chart_test) = simple_chart_setup_with_none();
+        chart_test
+            .decorations
+            .push(Decoration::Reference(ReferencePointDecoration::default()));
+        // Calling update_opengl_vecs also calls the decoration update opengl vecs
+        chart_test.update_opengl_vecs(size_test);
+        let deco_vecs = chart_test.decorations[0].opengl_vertices();
+
+        assert_eq!(chart_test.decorations[0].opengl_vertices().len(), 12);
+        // At this point we know 1 unit in the current drawn metrics is equals to
+        // 0.025
+        assert_eq!(
+            deco_vecs,
+            vec![
+                -1.0,     // Left-most
+                -0.97375, // 0.25 + 5% height multiplier, so 30% of the line
+                -1.0,     // Left-most
+                -0.97625, // Y value - 5% height multiplier, so 20% of the line
+                -1.0,     // Left-most
+                -0.975,   // Y value, so 25% of the line
+                -0.9,     // Right-most
+                -0.975,   // Y value is 1, so 25% of the line
+                -0.9,     // Right-most
+                -0.97625, // Y value is 1, so 25% of the line
+                -0.9,     // Right-most
+                -0.97375, // Y value is 1, so 25% of the line
+            ]
+        );
+    }
 }
-// `draw` sends the time series representation of the TimeSeries to OpenGL
-// context, this shouldn't be mut
-// fn draw(&self);
-// fn update_opengl_vecs(size: SizeInfo) -> Vec<f32>{
-// unimplemented!("XXX");
-// }
-// `init_opengl_context` provides a default initialization of OpengL
+// TODO: `init_opengl_context` provides a default initialization of OpengL
 // context. This function is called previous to sending the vector data.
 // This seems to be part of src/renderer/ mod tho...
 // fn init_opengl_context(&self);
 // }
 //
-// impl<T> Default for ActivityLevels<T>
-// where T: Num + Clone + Copy
-// {
-// `default` provides 5mins activity lines with red color
-// The vector of activity_levels per second is created with reserved capacity,
-// just to avoid needed to reallocate the vector in memory the first 5mins.
-// fn default() -> ActivityLevels<T>{
-// let activity_time = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-// let activity_vector_capacity = 300usize; // 300 seconds (5mins)
-// ActivityLevels{
-// last_activity_time: activity_time,
-// activity_levels: Vec::<T>::with_capacity(activity_vector_capacity), // XXX: Maybe use vec![0;
-// 300]; to pre-fill with zeros? max_activity_ticks: activity_vector_capacity,
-// color: Rgb { // By default red
-// r: 183,
-// g: 28,
-// b: 28,
-// },
-// x_offset: 600f32,
-// width: 200f32,
-// activity_opengl_vecs: Vec::<f32>::with_capacity(activity_vector_capacity * 2),
-// marker_line_vecs: vec![0f32; 16],
-// activity_line_height: 25f32,
-// activity_tick_spacing: 5f32,
-// alpha: 1f32,
-// marker_line: None,
-// missing_values_policy: MissingValuesPolicy::Zero,
-// }
-// }
-// }
-//
-// impl<T> ActivityLevels<T>
-// where T: Num + Clone + Copy
-// {
-// `with_color` Changes the color of the activity line
-// pub fn with_color(mut self, color: Rgb) -> ActivityLevels<T> {
-// self.color = color;
-// self
-// }
-//
-// `with_x_offset` Changes the offset of the activity level drawing location
-// pub fn with_x_offset(mut self, new_offset: f32) -> ActivityLevels<T> {
-// self.x_offset = new_offset;
-// self
-// }
-//
-// `with_width` Changes the width of the activity level drawing location
-// pub fn with_width(mut self, width: f32) -> ActivityLevels<T> {
-// self.width = width;
-// self
-// }
-//
-// `with_alpha` Changes the transparency of the activity level
-// pub fn with_alpha(mut self, alpha: f32) -> ActivityLevels<T> {
-// self.alpha = alpha;
-// self
-// }
-//
-// `with_marker_line` initializes the marker line into a Some
-// pub fn with_marker_line(mut self, value: T) -> ActivityLevels<T> {
-// self.marker_line = Some(value);
-// self
-// }
-//
-//
-// From https://docs.rs/procinfo/0.4.2/procinfo/struct.LoadAvg.html
-// Load average over the last minute.
-// load_avg_1_min: ActivityLevels<f32>,
-//
-// Load average of the last 5 minutes.
-// load_avg_5_min: ActivityLevels<f32>,
-//
-// Load average of the last 10 minutes
-// load_avg_10_min: ActivityLevels<f32>,
-//
-// These metrics are not that interesting to graph:
-// the number of currently runnable kernel scheduling entities (processes, threads).
-// tasks_runnable: ActivityLevels<u32>,
-// the number of kernel scheduling entities that currently exist on the system.
-// tasks_total: ActivityLevels<u32>,
-//
-// If no metrics were collected for some time, fill them with the last
-// known value
-// missing_values_policy: MissingValuesPolicy<f32>,
-//
-// A marker line to indicate a reference point, for example for load
-// to show where the 1 loadavg is, or to show disk capacity
-// pub marker_line: Option<f32>,
-//
-// The opengl representation of the activity levels
-// Contains twice as many items because it's x,y
-// pub marker_line_vecs: Vec<f32>,
-// }
-//
-// impl Default for LoadAvg{
-// fn default() -> LoadAvg {
-// LoadAvg{
-// load_avg_1_min: ActivityLevels::default()
-// .with_color(Rgb{r:93,g:23,b:106})
-// .with_width(50f32)
-// .with_alpha(0.9)
-// .with_missing_values_policy("last".to_string())
-// .with_marker_line(1f32)
-// .with_overwrite_last_entry(true)
-// .with_x_offset(1010f32),
-// load_avg_5_min: ActivityLevels::default()
-// .with_color(Rgb{r:146,g:75,b:158})
-// .with_width(30f32)
-// .with_alpha(0.6)
-// .with_missing_values_policy("last".to_string())
-// .with_marker_line(1f32)
-// .with_overwrite_last_entry(true)
-// .with_x_offset(1070f32),
-// load_avg_10_min: ActivityLevels::default()
-// .with_color(Rgb{r:202,g:127,b:213})
-// .with_width(20f32)
-// .with_alpha(0.3)
-// .with_missing_values_policy("last".to_string())
-// .with_marker_line(1f32) // Set a reference point at load 1
-// .with_overwrite_last_entry(true)
-// .with_x_offset(1110f32),
-// tasks_runnable: ActivityLevels::default()
-//    .with_color(Rgb{r:0,g:172,b:193})
-//    .with_width(50f32)
-//    .with_missing_values_policy("last".to_string())
-//    .with_overwrite_last_entry(true)
-//    .with_x_offset(1140f32),
-// tasks_total: ActivityLevels::default()
-//    .with_color(Rgb{r:27,g:160,b:71})
-//    .with_width(50f32)
-//    .with_missing_values_policy("last".to_string())
-//    .with_overwrite_last_entry(true)
-//    .with_x_offset(1190f32),
-// missing_values_policy: MissingValuesPolicy::Last,
-// marker_line: Some(1f32),
-// marker_line_vecs: vec![0f32; 16],
-// }
-// }
-// }
-//
-// impl TimeSeries for LoadAvg {
-// type MetricType = f32;
-// fn draw(&self) {
-// }
-// fn max(&self, _input: &Vec<Self::MetricType>) -> Self::MetricType
-// where Self::MetricType: Num + PartialOrd
-// {
-// let mut max_activity_value = TimeSeries::max(self, &self.load_avg_1_min.activity_levels);
-// let max_5_min = TimeSeries::max(self, &self.load_avg_5_min.activity_levels);
-// if max_activity_value < max_5_min {
-// max_activity_value = max_5_min;
-// }
-// let max_10_min = TimeSeries::max(self, &self.load_avg_10_min.activity_levels);
-// if max_activity_value < max_10_min {
-// max_activity_value = max_10_min;
-// }
-// max_activity_value
-// }
-//
-// }
