@@ -1,4 +1,15 @@
 charts:
+- name: async loaded items
+  offset:
+    x: 500
+  width: 100
+  height: 100
+  series:
+  - name: Number of input items for TimeSeries
+    type: async_items_loaded
+    refresh: 1
+    color: "0x00ff00"
+    alpha: 1.0
 - name: input keyboard
   offset:
     x: 600
