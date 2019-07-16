@@ -128,8 +128,8 @@ pub struct TimeSeries {
     /// or absolute value recorded at a given time
     pub collision_policy: ValueCollisionPolicy,
 
-    /// Missing values can be set to zero
-    /// to show where the 1 task per core is
+    /// Missing values returns a value for a specific time there is no data
+    /// recorded.c
     pub missing_values_policy: MissingValuesPolicy,
 
     /// The first item in the circular buffer
@@ -196,7 +196,7 @@ impl Default for ReferencePointDecoration {
             color: String::from("0xff0000"),
             alpha: 1.0,
             padding: Value2D {
-                x: 10f32,
+                x: 1f32,
                 y: 0f32, // No top/bottom padding
             },
             opengl_data: vec![],
@@ -342,7 +342,7 @@ impl Decoration {
     }
     /// `opengl_vertices` returns the representation of the decoration in
     /// opengl. These are for now GL_LINES and 2D
-    pub fn opengl_vertices(&mut self) -> Vec<f32> {
+    pub fn opengl_vertices(&self) -> Vec<f32> {
         match self {
             Decoration::Reference(d) => d.opengl_vertices(),
             Decoration::None => vec![],
@@ -503,33 +503,37 @@ pub struct TimeSeriesChart {
     #[serde(default)]
     pub tick_spacing: f32,
 
-    /// The opengl representation of the activity levels
-    /// Contains twice as many items because it's x,y
+    /// The opengl representation of the each series.
     #[serde(default)]
-    pub series_opengl_vecs: Vec<f32>,
+    pub opengl_vecs: Vec<Vec<f32>>,
 }
 
 impl TimeSeriesChart {
     /// `update_opengl_vecs` Represents the activity levels values in a
     /// drawable vector for opengl
-    pub fn update_opengl_vecs(&mut self, display_size: SizeInfo) {
+    pub fn update_opengl_vecs(&mut self, series_idx: usize, display_size: SizeInfo) {
         debug!("Chart: Starting update_opengl_vecs");
+        if series_idx > self.sources.len() {
+            error!("Request for out of bound series index: {}", series_idx);
+            return;
+        }
+        while self.opengl_vecs.capacity() < self.sources.capacity() {
+            self.opengl_vecs.push(vec![]);
+        }
         let mut display_size = display_size;
         display_size.chart_height = self.height;
         display_size.chart_width = self.width;
         // Get the opengl representation of the vector
-        let opengl_vecs_capacity = self.sources.iter().fold(0usize, |acc: usize, source| {
-            acc + (source.series().active_items * 2) // Times two because X,Y coords
-        });
-        if opengl_vecs_capacity > self.series_opengl_vecs.capacity() {
-            self.series_opengl_vecs
-                .reserve(opengl_vecs_capacity - self.series_opengl_vecs.capacity());
+        let opengl_vecs_capacity = self.sources[series_idx].series().active_items;
+        if opengl_vecs_capacity > self.opengl_vecs[series_idx].capacity() {
+            let missing_capacity = opengl_vecs_capacity - self.opengl_vecs[series_idx].capacity();
+            self.opengl_vecs[series_idx].reserve(missing_capacity);
         }
         debug!("Chart: Needed OpenGL capacity: {}", opengl_vecs_capacity);
         for source in &mut self.sources {
             if source.series().stats.is_dirty {
                 debug!(
-                    "Chart: {} stats are dirty, needs recalculating",
+                    "Chart: '{}' stats are dirty, needs recalculating",
                     source.name()
                 );
                 source.series_mut().calculate_stats();
@@ -545,38 +549,34 @@ impl TimeSeriesChart {
             "Chart: width: {}, decorations_space: {}",
             self.width, decorations_space
         );
-        let mut idx = 0usize;
-        for source in self.sources.iter() {
-            let missing_values_fill = source.series().get_missing_values_fill();
-            debug!(
-                "Chart: Using {} to fill missing values. Metrics capacity: {}",
-                missing_values_fill,
-                source.series().metrics_capacity
-            );
-            let tick_spacing =
-                (self.width - decorations_space) / source.series().metrics_capacity as f32;
-            debug!("Chart: Using tick_spacing {}", tick_spacing);
-            for metric in source.series().iter() {
-                // The decorations width request is on both left and right.
-                let x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
-                // If there is a Marker Line, it takes 10% of the initial horizontal space
-                let y_value = match metric.1 {
-                    Some(x) => x,
-                    None => missing_values_fill,
-                };
-                let scaled_x = display_size.scale_x(x_value + self.offset.x);
-                let scaled_y = display_size.scale_y(self.stats.max, y_value);
-                // Adding twice to a vec, could this be made into one operation? Is this slow?
-                // need to transform activity line values from varying levels into scaled [-1, 1]
-                // XXX: Move to Circular Buffer
-                if (idx + 1) * 2 > self.series_opengl_vecs.len() {
-                    self.series_opengl_vecs.push(scaled_x);
-                    self.series_opengl_vecs.push(scaled_y);
-                } else {
-                    self.series_opengl_vecs[idx * 2] = scaled_x;
-                    self.series_opengl_vecs[idx * 2 + 1] = scaled_y;
-                }
-                idx += 1;
+        let missing_values_fill = self.sources[series_idx].series().get_missing_values_fill();
+        debug!(
+            "Chart: Using {} to fill missing values. Metrics capacity: {}",
+            missing_values_fill,
+            self.sources[series_idx].series().metrics_capacity
+        );
+        let tick_spacing = (self.width - decorations_space)
+            / self.sources[series_idx].series().metrics_capacity as f32;
+        debug!("Chart: Using tick_spacing {}", tick_spacing);
+        for (idx, metric) in self.sources[series_idx].series().iter().enumerate() {
+            // The decorations width request is on both left and right.
+            let x_value = idx as f32 * tick_spacing + (decorations_space / 2f32);
+            // If there is a Marker Line, it takes 10% of the initial horizontal space
+            let y_value = match metric.1 {
+                Some(x) => x,
+                None => missing_values_fill,
+            };
+            let scaled_x = display_size.scale_x(x_value + self.offset.x);
+            let scaled_y = display_size.scale_y(self.stats.max, y_value);
+            // Adding twice to a vec, could this be made into one operation? Is this slow?
+            // need to transform activity line values from varying levels into scaled [-1, 1]
+            // XXX: Move to Circular Buffer
+            if (idx + 1) * 2 > self.opengl_vecs[series_idx].len() {
+                self.opengl_vecs[series_idx].push(scaled_x);
+                self.opengl_vecs[series_idx].push(scaled_y);
+            } else {
+                self.opengl_vecs[series_idx][idx * 2] = scaled_x;
+                self.opengl_vecs[series_idx][idx * 2 + 1] = scaled_y;
             }
         }
         for decoration in &mut self.decorations {
@@ -1279,9 +1279,9 @@ mod tests {
     #[test]
     fn it_updates_opengl_vertices() {
         let (size_test, mut chart_test) = simple_chart_setup_with_none();
-        chart_test.update_opengl_vecs(size_test);
+        chart_test.update_opengl_vecs(0, size_test);
         assert_eq!(
-            chart_test.series_opengl_vecs,
+            chart_test.opengl_vecs[0],
             vec![
                 -1.0,   // 1st X value, leftmost.
                 -1.0,   // Y value is 0, so -1.0 is the bottom-most
@@ -1304,7 +1304,7 @@ mod tests {
             .decorations
             .push(Decoration::Reference(ReferencePointDecoration::default()));
         // Calling update_opengl_vecs also calls the decoration update opengl vecs
-        chart_test.update_opengl_vecs(size_test);
+        chart_test.update_opengl_vecs(0, size_test);
         let deco_vecs = chart_test.decorations[0].opengl_vertices();
 
         assert_eq!(chart_test.decorations[0].opengl_vertices().len(), 12);
@@ -1325,6 +1325,25 @@ mod tests {
                 -0.97625, // Y value is 1, so 25% of the line
                 -0.9,     // Right-most
                 -0.97375, // Y value is 1, so 25% of the line
+            ]
+        );
+        // Since we have added a Reference point, it needs some space to be
+        // drawn, its default width is 1px, turns out to be 0.9 between ticks
+        // Also there is an offset of 10 px so divided by 2 (for each side) becomes:
+        // 0.05
+        assert_eq!(
+            chart_test.opengl_vecs[0],
+            vec![
+                -0.995,      // 1st X value, leftmost.
+                -1.0,        // Y value is 0, so -1.0 is the bottom-most
+                -0.986,      // X plus 0.01
+                -0.975,      // Y value is 1, so 25% of the line, so 0.025
+                -0.977,      // leftmost plus  0.01 * 2
+                -0.95,       // Y value is 2, so 50% from bottom to top
+                -0.96800005, // leftmost plus 0.01 * 3
+                -1.0,        // Top-most value, so the chart height
+                -0.959,      // leftmost plus 0.01 * 4, rightmost
+                -0.9         // Top-most value, so the chart height
             ]
         );
     }
