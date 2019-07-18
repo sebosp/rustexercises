@@ -129,7 +129,7 @@ pub struct TimeSeries {
     pub collision_policy: ValueCollisionPolicy,
 
     /// Missing values returns a value for a specific time there is no data
-    /// recorded.c
+    /// recorded.
     pub missing_values_policy: MissingValuesPolicy,
 
     /// The first item in the circular buffer
