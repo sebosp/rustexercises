@@ -364,6 +364,14 @@ pub struct ManualTimeSeries {
     /// The granularity to store
     #[serde(default)]
     pub granularity: u64,
+
+    /// The color of the TimeSeries
+    #[serde(default)]
+    pub color: String,
+
+    /// The transparency of the TimeSeries
+    #[serde(default)]
+    pub alpha: f32,
 }
 
 impl Default for ManualTimeSeries {
@@ -372,6 +380,8 @@ impl Default for ManualTimeSeries {
             name: String::from("unkown"),
             series: TimeSeries::default(),
             granularity: 1, // 1 second
+            color: String::from("0x00ff00"),
+            alpha: 1.0,
         }
     }
 }
