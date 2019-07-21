@@ -133,6 +133,14 @@ pub struct PrometheusTimeSeries {
     #[serde(default)]
     #[serde(rename = "refresh")]
     pub pull_interval: usize,
+
+    /// The color of the TimeSeries
+    #[serde(default)]
+    pub color: String,
+
+    /// The transparency of the TimeSeries
+    #[serde(default)]
+    pub alpha: f32,
 }
 
 impl Default for PrometheusTimeSeries {
@@ -146,6 +154,8 @@ impl Default for PrometheusTimeSeries {
             pull_interval: 15,
             data_type: String::from("vector"),
             required_labels: HashMap::new(),
+            color: String::from("0x00ff00"),
+            alpha: 1.0,
         }
     }
 }
@@ -168,6 +178,7 @@ impl PrometheusTimeSeries {
             pull_interval,
             data_type,
             required_labels,
+            ..PrometheusTimeSeries::default()
         };
         res.series.collision_policy = ValueCollisionPolicy::Overwrite;
         match PrometheusTimeSeries::prepare_url(&res.source, res.series.metrics_capacity as u64) {
