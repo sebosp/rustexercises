@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::timer::Interval;
 
+// TODO:
+// - Add color fetch
+// - Maybe the coordinator should talk to OpenGL directly to avoid copyign arrays.
 /// `MetricRequest` contains a way to address a particular
 /// item in our TimeSeriesCharts vectors
 #[derive(Debug, Clone)]
@@ -29,8 +32,8 @@ pub struct MetricRequest {
 #[derive(Debug)]
 pub enum AsyncChartTask {
     LoadResponse(MetricRequest),
-    GetMetricsOpenGL(usize, usize, oneshot::Sender<Vec<f32>>),
-    GetDecorationsOpenGL(usize, usize, oneshot::Sender<Vec<f32>>),
+    GetMetricsOpenGLData(usize, usize, oneshot::Sender<Vec<f32>>),
+    GetDecorationsOpenGLData(usize, usize, oneshot::Sender<Vec<f32>>),
 }
 
 /// `load_http_response` is called by async_coordinator when a task of type
@@ -83,7 +86,7 @@ pub fn load_http_response(charts: &mut Vec<TimeSeriesChart>, response: MetricReq
     }
 }
 
-/// `get_opengl_vecs` is called by async_coordinator when an task or type GetMetricsOpenGL
+/// `get_opengl_vecs` is called by async_coordinator when an task or type GetMetricsOpenGLData
 /// is received, it should contain the chart index to represent
 pub fn get_opengl_vecs(
     charts: &[TimeSeriesChart],
@@ -144,10 +147,10 @@ fn async_coordinator(
         debug!("async_coordinator: message: {:?}", message);
         match message {
             AsyncChartTask::LoadResponse(req) => load_http_response(&mut charts, req),
-            AsyncChartTask::GetMetricsOpenGL(chart_index, data_index, channel) => {
+            AsyncChartTask::GetMetricsOpenGLData(chart_index, data_index, channel) => {
                 get_opengl_vecs(&charts, chart_index, data_index, channel, false);
             }
-            AsyncChartTask::GetDecorationsOpenGL(chart_index, data_index, channel) => {
+            AsyncChartTask::GetDecorationsOpenGLData(chart_index, data_index, channel) => {
                 get_opengl_vecs(&charts, chart_index, data_index, channel, true);
             }
         };
@@ -268,13 +271,13 @@ fn main() {
                     let (opengl_tx, opengl_rx) = oneshot::channel();
                     let get_opengl_task = tx
                         .clone()
-                        .send(AsyncChartTask::GetMetricsOpenGL(
+                        .send(AsyncChartTask::GetMetricsOpenGLData(
                             chart_idx, series_idx, opengl_tx,
                         ))
-                        .map_err(|e| error!("Sending GetMetricsOpenGL Task: err={:?}", e))
+                        .map_err(|e| error!("Sending GetMetricsOpenGLData Task: err={:?}", e))
                         .and_then(move |_res| {
                             debug!(
-                                "Sent GetMetricsOpenGL Task for chart index: {}, series: {}",
+                                "Sent GetMetricsOpenGLData Task for chart index: {}, series: {}",
                                 chart_idx, series_idx
                             );
                             Ok(())
@@ -283,10 +286,10 @@ fn main() {
                     let opengl_rx = opengl_rx.map(|x| x);
                     match opengl_rx.wait() {
                         Ok(data) => {
-                            debug!("Got response from GetMetricsOpenGL Task: {:?}", data);
+                            debug!("Got response from GetMetricsOpenGLData Task: {:?}", data);
                         }
                         Err(err) => {
-                            error!("Error response from GetMetricsOpenGL Task: {:?}", err);
+                            error!("Error response from GetMetricsOpenGLData Task: {:?}", err);
                         }
                     }
                 }
